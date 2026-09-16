@@ -1,0 +1,172 @@
+"""Read TCP catalogs and optional period records; never output credentials."""
+
+import json
+import os
+import time
+from datetime import date, datetime, timezone
+from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, build_opener, HTTPRedirectHandler
+
+
+class InspectionError(Exception):
+    pass
+
+
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def select(record, fields):
+    return {key: record[key] for key in fields.split() if key in record}
+
+
+def project(kind, record):
+    fields = {
+        "locations": "id name active",
+        "jobcodes": "id jobCodeId description jobClass jobCodeGroup locationName active leaveCode forceUnpaid askTracked1 askTracked2 askTracked3",
+        "costcodes": "id fullName description isActive",
+        "customfields": "id description category fieldNumber moduleType moduleNumber subModuleNumber",
+        "employees": "employeeId employeeRecordId employeeName firstName lastName department location defaultJobCode defaultCostCode roleId isSuspended terminationDate",
+        "worksegments": "id employeeId employeeRecordId jobCodeId costCode laborCodes timeIn timeOut tracked1 tracked2 tracked3 employeeDefaultLocationId customFields missedInPunch missedOutPunch",
+    }
+    if kind == "hours":
+        result = select(record, "period info")
+        result["employee"] = project("employees", record.get("employee") or {})
+        result["segments"] = []
+        for segment in record.get("segments") or []:
+            item = select(segment, "recordId timeIn timeOut hours isLeave comp clockedInStatus")
+            item["jobCode"] = project("jobcodes", segment.get("jobCode") or {})
+            item["costCode"] = project("costcodes", segment.get("costCode") or {})
+            result["segments"].append(item)
+        return result
+    return select(record, fields[kind])
+
+
+class TCP:
+    def __init__(self):
+        self.opener = build_opener(NoRedirect)
+        self.headers = {}
+        self.last_request = 0
+        self.requests = 0
+
+    def request(self, url, data=None):
+        if self.requests >= 150:
+            raise InspectionError("Request safety limit reached; results are incomplete.")
+        for attempt in range(3):
+            time.sleep(max(0, 1.1 - (time.monotonic() - self.last_request)))
+            self.last_request = time.monotonic()
+            self.requests += 1
+            headers = {"Accept": "application/json"}
+            if data is None:
+                headers.update(self.headers)
+            else:
+                headers["Content-Type"] = "application/x-www-form-urlencoded"
+            req = Request(url, data=data, headers=headers)
+            try:
+                with self.opener.open(req, timeout=60) as response:
+                    return json.load(response)
+            except HTTPError as exc:
+                # Do not print response bodies: they can echo credentials or records.
+                if exc.code in (429, 502, 503, 504) and attempt < 2:
+                    time.sleep(10 * (attempt + 1))
+                    continue
+                raise InspectionError(f"TCP returned HTTP {exc.code}.") from None
+            except (URLError, TimeoutError, ValueError):
+                raise InspectionError("TCP connection or JSON response failed.") from None
+
+    def authenticate(self):
+        missing = [key for key in ("TCP_CLIENT_ID", "TCP_CLIENT_SECRET", "TCP_API_KEY") if not os.environ.get(key, "").strip()]
+        if missing:
+            raise InspectionError("Missing configuration: " + ", ".join(missing))
+        body = urlencode({
+            "grant_type": "client_credentials",
+            "scope": "tcp-openapi/tcpopenapi.read",
+            "client_id": os.environ["TCP_CLIENT_ID"].strip(),
+            "client_secret": os.environ["TCP_CLIENT_SECRET"].strip(),
+        }).encode()
+        result = self.request("https://auth.api.tcplusondemand.com/oauth2/token", body)
+        token = result.get("access_token")
+        if not isinstance(token, str) or not token:
+            raise InspectionError("TCP did not return an access token.")
+        self.headers = {
+            "Authorization": "Bearer " + token,
+            "x-api-key": os.environ["TCP_API_KEY"].strip(),
+        }
+        company = os.environ.get("TCP_COMPANY_ID", "").strip()
+        if company:
+            self.headers["X-Tcp-CompanyId"] = company
+
+    def collect(self, kind, params=None):
+        records = []
+        fingerprints = set()
+        for page in range(1, 101):
+            query = {**(params or {}), "perPage": 250, "page": page}
+            response = self.request("https://api.tcplusondemand.com/v1/" + kind + "?" + urlencode(query))
+            if response.get("errors"):
+                raise InspectionError("TCP returned application errors; collection is incomplete.")
+            rows = response.get("data")
+            if rows is None:
+                rows = []
+            if not isinstance(rows, list):
+                raise InspectionError("Unexpected TCP response data structure.")
+            if not rows:
+                return records
+            fingerprint = json.dumps(rows, sort_keys=True)
+            if fingerprint in fingerprints:
+                raise InspectionError("TCP repeated a page; collection is incomplete.")
+            fingerprints.add(fingerprint)
+            records.extend(project(kind, row) for row in rows)
+            # Continue to an empty page: do not assume the server honors page size.
+        raise InspectionError("Page limit reached; collection is incomplete.")
+
+
+def period():
+    start = os.environ.get("TCP_PAY_PERIOD_START", "").strip()
+    end = os.environ.get("TCP_PAY_PERIOD_END", "").strip()
+    if not start and not end:
+        return None
+    try:
+        first, last = date.fromisoformat(start), date.fromisoformat(end)
+    except ValueError:
+        raise InspectionError("Supply both period dates as YYYY-MM-DD.") from None
+    if last < first or (last - first).days > 90:
+        raise InspectionError("Period end must be on or after start and at most 90 days later.")
+    return {"startDate": first.isoformat(), "stopDate": last.isoformat()}
+
+
+def main():
+    report = {"generated_at": datetime.now(timezone.utc).isoformat(), "datasets": {}, "errors": {}}
+    client = TCP()
+    try:
+        dates = period()
+        report["period"] = dates
+        client.authenticate()
+        report["authenticated"] = True
+        queries = {"locations": {}, "jobcodes": {}, "costcodes": {}, "customfields": {}, "employees": {"includeRoles": "true"}}
+        if dates:
+            queries["hours"] = {**dates, "includeJobCode": "true", "includeCostCode": "true", "includeRate": "false", "includeOverlapping": "false"}
+            queries["worksegments"] = {**dates, "includeEmployeeDefaultLocation": "true", "sortByWorkSegmentId": "true"}
+        for kind, params in queries.items():
+            try:
+                records = client.collect(kind, params)
+                report["datasets"][kind] = {"complete": True, "count": len(records), "records": records}
+                print(f"{kind}: {len(records)} records retrieved.")
+            except InspectionError as exc:
+                report["errors"][kind] = str(exc)
+                print(f"{kind}: failed; see private report.")
+    except InspectionError as exc:
+        report["errors"]["setup"] = str(exc)
+        print(str(exc))
+    report["request_count"] = client.requests
+    output = Path(__file__).parent / "reports" / "inspection.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    print("Private inspection report saved; no credentials are included.")
+    return 1 if report["errors"] else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

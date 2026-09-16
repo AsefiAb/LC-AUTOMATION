@@ -10,7 +10,24 @@ Copy `.env.example` to `.env` in this folder and enter `TCP_CLIENT_ID`,
 dates. The client ID and secret are exchanged for an access token; they are
 not interchangeable with the API key. A manually supplied bearer token is
 not needed for this setup.
-No API client has been implemented yet and no company data has been retrieved.
+The read-only inspection client is `tcp_inspect.py`. It uses environment
+variables; it does not load `.env` automatically.
+
+## Run using GitHub secrets
+
+The private repository's **Inspect TCP payroll data** Action uses the repository
+secrets `TCP_CLIENT_ID`, `TCP_CLIENT_SECRET`, and `TCP_API_KEY`. The optional
+repository variable `TCP_COMPANY_ID` selects a non-default company.
+
+Run the workflow manually with start and end dates to inspect hours and work
+segments as well as stores, job codes, and employees. Omit both dates for catalog
+discovery only. The report is a private `tcp-inspection` workflow artifact retained
+for three days. Credentials are never included. Personal contact information,
+birth dates, and pay rates are excluded from the output. No TCP records are changed.
+Reports are not committed to the repository.
+
+This is an inspection report, not a finalized payroll calculation. Tip fields,
+store attribution, and role mappings must be verified against returned data.
 
 ## Authentication
 
