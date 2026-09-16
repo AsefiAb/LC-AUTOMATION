@@ -5,10 +5,28 @@ hours and total tips for the current pay period**.
 
 ## Setup
 
-Copy `.env.example` to `.env` in this folder and enter the API key, bearer
-token, and actual current pay-period dates. Keep the token free of the
-`Bearer ` prefix; a future API client will add that prefix to the header.
+Copy `.env.example` to `.env` in this folder and enter `TCP_CLIENT_ID`,
+`TCP_CLIENT_SECRET`, the separate `TCP_API_KEY`, and actual current pay-period
+dates. The client ID and secret are exchanged for an access token; they are
+not interchangeable with the API key. A manually supplied bearer token is
+not needed for this setup.
 No API client has been implemented yet and no company data has been retrieved.
+
+## Authentication
+
+TCP's [authentication guide](https://timeclock-plus.readme.io/docs/authentication)
+documents a form-urlencoded POST to
+`https://auth.api.tcplusondemand.com/oauth2/token` with `grant_type=client_credentials`,
+`client_id`, `client_secret`, and `scope`. The template requests
+`tcp-openapi/tcpopenapi.read` for this reporting integration; the guide's example
+requests both read and write scopes. Read-only token issuance has not yet been tested.
+Tokens expire after one hour and should be generated when needed.
+
+Data requests require the separate `x-api-key` header and
+`Authorization: Bearer <access_token>`. `X-Tcp-CompanyId` is optional and defaults
+to `1`; set `TCP_COMPANY_ID` if the intended company differs. If TCP supplied
+only a client ID and secret, request the separate API key from TCP or your
+administrator.
 
 ## Documentation findings
 
