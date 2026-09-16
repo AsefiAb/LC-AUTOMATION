@@ -59,14 +59,32 @@ administrator.
 - The originally supplied accrual-bank endpoint creates accrual banks and is
   unrelated to reading hours and tips.
 
-## Remaining work
+## Reporting rules
 
-1. Supply local credentials and confirm the current pay-period boundaries.
-2. Resolve the store's identifier and confirm how worked shifts map to stores.
-3. Verify the tip field and meaning against company configuration or a known report.
-4. Retrieve all relevant pages using read-only requests and calculate totals.
-   Account for regular/overtime categories without double counting and disclose
-   incomplete punches or unavailable tip values rather than treating them as zero.
+`summarize_inspection.py <inspection.json> <summary.json>` creates store,
+employee/store, and shift summaries from an inspection artifact. Source and
+output paths should be under the ignored `reports/` directory.
+
+- Dates are inclusive and select shifts by clock-in date. Overnight shifts stay
+  with the date on which they began. The hours request uses a one-day buffer,
+  then filters shifts locally; buffered API period totals are not report totals.
+- Work-segment queries use explicit timestamps and `includeSegmentTime=timeIn`
+  so the final day's overnight shifts are included.
+- Store attribution and worked roles use job-code descriptions and locations.
+  Worked roles may differ from a person's permanent employment title.
+- Sum TCP's calculated regular, overtime 1, and overtime 2 durations in minutes.
+  Convert to decimal hours only for presentation. Exclude open punches and leave
+  from worked-hour totals and retain them in the source detail.
+- Reconcile calculated shift IDs with work-segment IDs and reject duplicate
+  calculated segments. Missing monetary fields are not treated as zero tips.
+- Flag closed shifts with elapsed time but zero calculated hours. These make
+  the sample incomplete; do not infer overtime or replace them with raw punch
+  durations without verifying TCP's calculation and break rules.
+
+The connection through GitHub secrets was verified. The company defines a
+`Tipping` job code using tracked field 1, but no tip entries or tracked amounts
+were returned in the September 1–14, 2026 sample. Confirm the tip source and
+posting process before implementing tip totals or allocation.
 
 Keep downloaded records in `data/` and output reports in `reports/`; both are
 ignored by Git.
