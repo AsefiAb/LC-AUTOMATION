@@ -172,7 +172,7 @@ def main():
             report["hours_query_stop"] = hours_stop
             report["date_basis"] = "Shifts beginning within the inclusive requested dates; all hours in those shifts. API period totals cover the buffered query, so report totals must be calculated from the filtered segments."
             queries["hours"] = {**dates, "stopDate": hours_stop, "includeJobCode": "true", "includeCostCode": "true", "includeRate": "false", "includeOverlapping": "false"}
-            queries["worksegments"] = {**dates, "includeSegmentTime": "timeIn", "includeEmployeeDefaultLocation": "true", "sortByWorkSegmentId": "true"}
+            queries["worksegments"] = {"startDate": dates["startDate"] + "T00:00:00", "stopDate": dates["stopDate"] + "T23:59:59", "includeSegmentTime": "timeIn", "includeEmployeeDefaultLocation": "true", "sortByWorkSegmentId": "true"}
         for kind, params in queries.items():
             try:
                 records = client.collect(kind, params)
@@ -196,7 +196,7 @@ def main():
             try:
                 prior_start = (date.fromisoformat(dates["startDate"]) - timedelta(days=14)).isoformat()
                 prior_end = (date.fromisoformat(dates["startDate"]) - timedelta(days=1)).isoformat()
-                sample = client.request("https://api.tcplusondemand.com/v1/worksegments?" + urlencode({"startDate": prior_start, "stopDate": prior_end, "jobCodeIds": ",".join(tip_jobs[:20]), "includeEmployeeDefaultLocation": "true", "perPage": 25, "page": 1}))
+                sample = client.request("https://api.tcplusondemand.com/v1/worksegments?" + urlencode({"startDate": prior_start + "T00:00:00", "stopDate": prior_end + "T23:59:59", "includeSegmentTime": "timeIn", "jobCodeIds": ",".join(tip_jobs[:20]), "includeEmployeeDefaultLocation": "true", "perPage": 25, "page": 1}))
                 if sample.get("errors"):
                     raise InspectionError("TCP returned application errors for the tip sample.")
                 report["historical_tip_sample"] = {
