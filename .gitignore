@@ -1,0 +1,21 @@
+# Local credentials (keep blank examples in Git).
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Private business data and generated reports.
+**/data/
+**/exports/
+**/reports/
+**/logs/
+*.log
+
+# Local development files.
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+.DS_Store
+Thumbs.db
