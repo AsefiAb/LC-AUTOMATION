@@ -166,31 +166,44 @@ def main():
         report["authenticated"] = True
         queries = {"locations": {}, "jobcodes": {}, "costcodes": {}, "customfields": {}, "employees": {"includeRoles": "true"}}
         if dates:
-            # Observed TCP behavior: hours stopDate is exclusive, while the
-            # worksegments endpoint includes the specified stop calendar date.
+            # Read a one-day buffer, then select shifts by start date locally.
+            # This avoids losing overnight shifts at the reporting boundary.
             hours_stop = (date.fromisoformat(dates["stopDate"]) + timedelta(days=1)).isoformat()
-            report["hours_query_stop_exclusive"] = hours_stop
+            report["hours_query_stop"] = hours_stop
+            report["date_basis"] = "Shifts beginning within the inclusive requested dates; all hours in those shifts. API period totals cover the buffered query, so report totals must be calculated from the filtered segments."
             queries["hours"] = {**dates, "stopDate": hours_stop, "includeJobCode": "true", "includeCostCode": "true", "includeRate": "false", "includeOverlapping": "false"}
-            queries["worksegments"] = {**dates, "includeEmployeeDefaultLocation": "true", "sortByWorkSegmentId": "true"}
+            queries["worksegments"] = {**dates, "includeSegmentTime": "timeIn", "includeEmployeeDefaultLocation": "true", "sortByWorkSegmentId": "true"}
         for kind, params in queries.items():
             try:
                 records = client.collect(kind, params)
+                if dates and kind in ("hours", "worksegments"):
+                    def in_period(row):
+                        return dates["startDate"] <= (row.get("timeIn") or "")[:10] <= dates["stopDate"]
+                    if kind == "hours":
+                        for row in records:
+                            row["segments"] = [segment for segment in row["segments"] if in_period(segment)]
+                    else:
+                        records = [row for row in records if in_period(row)]
                 report["datasets"][kind] = {"complete": True, "count": len(records), "records": records}
                 print(f"{kind}: {len(records)} records retrieved.")
             except InspectionError as exc:
                 report["errors"][kind] = str(exc)
                 print(f"{kind}: failed; see private report.")
-        # A bounded historical sample helps distinguish unposted tips from an
-        # unavailable field. It is never included in the selected period totals.
+        # A bounded prior-period sample checks tip availability. It is never
+        # included in the selected period totals.
         tip_jobs = [str(row["jobCodeId"]) for row in report["datasets"].get("jobcodes", {}).get("records", []) if row.get("description", "").strip().lower() == "tipping"]
         if dates and tip_jobs:
             try:
-                sample = client.request("https://api.tcplusondemand.com/v1/worksegments?" + urlencode({"jobCodeIds": ",".join(tip_jobs[:20]), "includeEmployeeDefaultLocation": "true", "perPage": 25, "page": 1}))
+                prior_start = (date.fromisoformat(dates["startDate"]) - timedelta(days=14)).isoformat()
+                prior_end = (date.fromisoformat(dates["startDate"]) - timedelta(days=1)).isoformat()
+                sample = client.request("https://api.tcplusondemand.com/v1/worksegments?" + urlencode({"startDate": prior_start, "stopDate": prior_end, "jobCodeIds": ",".join(tip_jobs[:20]), "includeEmployeeDefaultLocation": "true", "perPage": 25, "page": 1}))
                 if sample.get("errors"):
                     raise InspectionError("TCP returned application errors for the tip sample.")
                 report["historical_tip_sample"] = {
                     "complete": False,
-                    "note": "First page without a date filter; excluded from period totals.",
+                    "note": "First page of the prior 14 days; excluded from period totals.",
+                    "startDate": prior_start,
+                    "stopDate": prior_end,
                     "records": [project("worksegments", row) for row in sample.get("data") or []],
                 }
             except InspectionError as exc:
