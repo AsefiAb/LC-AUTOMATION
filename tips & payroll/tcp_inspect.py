@@ -3,7 +3,7 @@
 import json
 import os
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -151,8 +151,8 @@ def period():
         first, last = date.fromisoformat(start), date.fromisoformat(end)
     except ValueError:
         raise InspectionError("Supply both period dates as YYYY-MM-DD.") from None
-    if last < first or (last - first).days > 90:
-        raise InspectionError("Period end must be on or after start and at most 90 days later.")
+    if last < first or (last - first).days >= 90:
+        raise InspectionError("Period must contain between 1 and 90 days inclusive.")
     return {"startDate": first.isoformat(), "stopDate": last.isoformat()}
 
 
@@ -166,7 +166,11 @@ def main():
         report["authenticated"] = True
         queries = {"locations": {}, "jobcodes": {}, "costcodes": {}, "customfields": {}, "employees": {"includeRoles": "true"}}
         if dates:
-            queries["hours"] = {**dates, "includeJobCode": "true", "includeCostCode": "true", "includeRate": "false", "includeOverlapping": "false"}
+            # Observed TCP behavior: hours stopDate is exclusive, while the
+            # worksegments endpoint includes the specified stop calendar date.
+            hours_stop = (date.fromisoformat(dates["stopDate"]) + timedelta(days=1)).isoformat()
+            report["hours_query_stop_exclusive"] = hours_stop
+            queries["hours"] = {**dates, "stopDate": hours_stop, "includeJobCode": "true", "includeCostCode": "true", "includeRate": "false", "includeOverlapping": "false"}
             queries["worksegments"] = {**dates, "includeEmployeeDefaultLocation": "true", "sortByWorkSegmentId": "true"}
         for kind, params in queries.items():
             try:
@@ -176,6 +180,21 @@ def main():
             except InspectionError as exc:
                 report["errors"][kind] = str(exc)
                 print(f"{kind}: failed; see private report.")
+        # A bounded historical sample helps distinguish unposted tips from an
+        # unavailable field. It is never included in the selected period totals.
+        tip_jobs = [str(row["jobCodeId"]) for row in report["datasets"].get("jobcodes", {}).get("records", []) if row.get("description", "").strip().lower() == "tipping"]
+        if dates and tip_jobs:
+            try:
+                sample = client.request("https://api.tcplusondemand.com/v1/worksegments?" + urlencode({"jobCodeIds": ",".join(tip_jobs[:20]), "includeEmployeeDefaultLocation": "true", "perPage": 25, "page": 1}))
+                if sample.get("errors"):
+                    raise InspectionError("TCP returned application errors for the tip sample.")
+                report["historical_tip_sample"] = {
+                    "complete": False,
+                    "note": "First page without a date filter; excluded from period totals.",
+                    "records": [project("worksegments", row) for row in sample.get("data") or []],
+                }
+            except InspectionError as exc:
+                report["historical_tip_sample"] = {"error": str(exc)}
     except InspectionError as exc:
         report["errors"]["setup"] = str(exc)
         print(str(exc))
