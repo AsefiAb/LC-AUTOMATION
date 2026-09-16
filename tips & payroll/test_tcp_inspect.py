@@ -1,11 +1,19 @@
 import os
+from io import BytesIO
 import unittest
 from unittest.mock import patch
+from urllib.error import HTTPError
 
-from tcp_inspect import TCP, InspectionError, period, project
+from tcp_inspect import TCP, InspectionError, error_detail, period, project
 
 
 class InspectionTests(unittest.TestCase):
+    def test_error_diagnostics_do_not_echo_secrets(self):
+        error = HTTPError("https://example.com", 400, "error", {}, BytesIO(b'{"error":"invalid_client","error_description":"secret-value"}'))
+        self.assertEqual(error_detail(error), "invalid_client")
+        error = HTTPError("https://example.com", 400, "error", {}, BytesIO(b'{"message":"secret-value"}'))
+        self.assertEqual(error_detail(error), "unrecognized error response")
+
     def test_projection_excludes_unnecessary_personal_data(self):
         result = project("hours", {
             "employee": {"employeeId": 12, "employeeName": "Example", "birthDate": "private", "authentication": {"pin": "private"}},

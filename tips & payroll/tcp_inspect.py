@@ -19,6 +19,25 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
+def error_detail(exc):
+    """Return only recognized error labels, never arbitrary response text."""
+    content = exc.read(8192)
+    try:
+        payload = json.loads(content)
+    except (ValueError, UnicodeError):
+        if b"request blocked" in content.lower():
+            return "request blocked by gateway"
+        return "non-JSON error response"
+    if not isinstance(payload, dict):
+        return "unrecognized error response"
+    recognized = {
+        "invalid_client", "invalid_scope", "invalid_request", "unauthorized_client",
+        "unsupported_grant_type", "access_denied", "Forbidden",
+        "Missing Authentication Token", "Unauthorized", "Too Many Requests",
+    }
+    return next((payload[key] for key in ("error", "message") if isinstance(payload.get(key), str) and payload[key] in recognized), "unrecognized error response")
+
+
 def select(record, fields):
     return {key: record[key] for key in fields.split() if key in record}
 
@@ -59,7 +78,7 @@ class TCP:
             time.sleep(max(0, 1.1 - (time.monotonic() - self.last_request)))
             self.last_request = time.monotonic()
             self.requests += 1
-            headers = {"Accept": "application/json"}
+            headers = {"Accept": "application/json", "User-Agent": "LC-Automation/1.0 (TCP payroll reporting)"}
             if data is None:
                 headers.update(self.headers)
             else:
@@ -73,7 +92,7 @@ class TCP:
                 if exc.code in (429, 502, 503, 504) and attempt < 2:
                     time.sleep(10 * (attempt + 1))
                     continue
-                raise InspectionError(f"TCP returned HTTP {exc.code}.") from None
+                raise InspectionError(f"TCP returned HTTP {exc.code}: {error_detail(exc)}.") from None
             except (URLError, TimeoutError, ValueError):
                 raise InspectionError("TCP connection or JSON response failed.") from None
 
