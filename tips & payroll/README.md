@@ -207,10 +207,34 @@ Verify access to the following capabilities for each payroll company:
 
 ADP documents the pay-data-input scope as
 `/payroll/payrollManagement/payrollProcessing/payDataInputManagement/pay-data-input.modify`.
-Exact selections in the user's "Allowed APIs (0)" screen have not been inspected;
-confirm the portal and available options before prescribing click-by-click steps
-or assuming a single API key is sufficient for authentication. Store credentials
-only in GitHub Secrets; never commit credential values or payroll records.
+Store credentials only in GitHub Secrets; never commit credential values or
+payroll records.
+
+### ADP portal setup status (September 16, 2026)
+
+Created the user's `Payroll` project with Payroll Input (Read/Write). Its initial
+Allowed APIs list was empty. Added the following API bundles through discovery;
+ADP displayed "6 APIs were successfully added to your project":
+
+- `GET /hr/v2/workers`
+- `GET /hr/v2/workers/{aoid}`
+- `GET /hr/v2/workers/meta`
+- `GET /hr/v2/workers/{aoid}/meta`
+- `GET /events/payroll/v1/pay-data-input.modify/meta`
+- `POST /events/payroll/v1/pay-data-input.modify`
+
+The portal still showed an empty Allowed APIs list and "error retrieving client
+credentials", including after a refresh. The client ID/secret copy controls were
+disabled. The success notification confirms the add operation, but usable access
+and credentials remain unverified. Do not re-create duplicate projects to retry.
+
+The certificate wizard identifies the organization as `LC CO LLC`. It requires
+the organization's country, state, and city; the city/state have been requested
+from the user. No certificate was generated. The portal requires a signed ADP
+certificate and private key along with the client ID/secret; its token endpoint
+is `https://accounts.adp.com/auth/oauth/v2/token`.
+The user will copy credentials themselves. Access to AZ and TX companies still
+needs verification; creating this project does not establish cross-company access.
 
 References:
 - https://developers.adp.com/articles/preview/guide-worker-management-api-guide-for-adp-workforce-now-0
