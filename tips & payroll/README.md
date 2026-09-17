@@ -136,3 +136,83 @@ and an aligned, verified data set.
 
 Keep downloaded records in `data/` and output reports in `reports/`; both are
 ignored by Git.
+
+## Confirmed regional payroll workflow
+
+The payroll product is ADP Workforce Now. Refresh each region's complete payroll
+roster for every period; never reuse an example CSV's employee list as a fixed
+roster. Include every employee in the regional export, including management and
+employees without worked hours. Also reconcile everyone with TCP hours during
+the period, including employees who have since left. An employee with TCP hours
+but no verified ADP identity needs resolution before that region is imported.
+Missing TCP records are not evidence of zero hours until completeness is verified.
+
+Produce separate exports for CO, AZ, and TX, and import each into its verified
+ADP company/payroll group and period. An ADP company code and payroll file number
+identify the target; names assist initial matching but must not be the sole key
+for unattended imports. Use an established TCP GEID-to-ADP identity mapping and
+flag ambiguous or unmatched names. New employees must be included when mapped;
+do not create ADP employee profiles as a side effect of exporting payroll.
+
+The user identified `EPIFND00.CSV` as the Colorado example. Inspection found 193
+employee rows, all with company code `FND`, with no duplicate company/file-number
+pairs. Its example batch is `Wrksh001`; select the actual batch for each run.
+The nine columns are `!CO CODE`, `BATCH ID`, `FILE #`, `BATCH DESCRIPTION`, `Name`,
+`Rate`, `Reg Hours`, `O/T Hours`, and `TIP`. Preserve the ADP header and mapping
+rows, payroll identifiers, and current ADP rates. Replace period-specific hours,
+overtime, and tip values with verified results; never carry old amounts forward.
+The TIP metadata maps Earnings 3 Code and Earnings 3 Amount to the `TIP` code.
+Confirm that earnings code against each company's live ADP metadata.
+
+Create one workbook per store, named for example
+`3356-01 9.8.26-9.21.26.xlsx`, with crew followed by management. Columns:
+GEID, Payroll ID, First Name, Last Name, Job Title, Total Hours, Tips, Reg Hours,
+OT Hours. Management tips are zero. Keep the store's full-precision tip rate in
+a separately labeled field, and show separate crew and all-employee hour totals.
+The same verified data must feed the workbooks, regional CSVs, and API batches.
+Using the API to create a batch does not require uploading the CSV itself.
+
+## Confirmed timing and delivery
+
+- First planned run: September 22, 2026 at 08:00 America/Los_Angeles.
+- Repeat every 14 days, anchored to that date, not odd/even ISO week numbers.
+- Interpret the user's "8am PST" as Pacific local time, adjusting for daylight
+  saving time. This interpretation was stated to the user.
+- September 22 covers September 8-21 inclusive; October 6 covers September
+  22-October 5 inclusive; October 20 covers October 6-19 inclusive.
+- The previous period was August 25-September 7, 2026 inclusive.
+- Email the dated store documents from `ab@caazllc.com` (Google Workspace) to
+  `alicia@lccollc.com`, then import verified regional pay-data batches.
+- Keep durable period/company import receipts and email delivery records so
+  retries do not duplicate batches or resend completed deliveries.
+
+These are recorded requirements, not an activated schedule. The current Action
+only performs manual TCP inspection. Gateway orchestration, ADP credentials and
+access, Google Workspace sender authorization, exports, and live scheduling
+still need integration and end-to-end validation. Do not mark a period completed
+or send a successful-payroll report when inputs or imports are incomplete.
+
+## ADP permissions to configure
+
+In ADP API Central, the Payroll Input use case is the relevant starting point.
+Verify access to the following capabilities for each payroll company:
+
+- Worker Management read: `GET /hr/v2/workers`, with pagination, for names,
+  assignments, company codes, and payroll identifiers.
+- Payroll Data Input metadata:
+  `GET /events/payroll/v1/pay-data-input.modify/meta`, including company/file
+  filters, to validate configured earnings codes and accepted input fields.
+- Payroll Data Input write:
+  `POST /events/payroll/v1/pay-data-input.modify`, to create the pay-data batch.
+
+ADP documents the pay-data-input scope as
+`/payroll/payrollManagement/payrollProcessing/payDataInputManagement/pay-data-input.modify`.
+Exact selections in the user's "Allowed APIs (0)" screen have not been inspected;
+confirm the portal and available options before prescribing click-by-click steps
+or assuming a single API key is sufficient for authentication. Store credentials
+only in GitHub Secrets; never commit credential values or payroll records.
+
+References:
+- https://developers.adp.com/articles/preview/guide-worker-management-api-guide-for-adp-workforce-now-0
+- https://developers.adp.com/articles/preview/guide-payroll-data-input-api--guide-for-adp-workforce-now-0?chapter=2
+- https://apps.adp.com/en-US/apps/410612/ADP%C2%AE%20API%20Central%20for%20ADP%20Workforce%20Now%C2%AE/features
