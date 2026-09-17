@@ -172,6 +172,70 @@ a separately labeled field, and show separate crew and all-employee hour totals.
 The same verified data must feed the workbooks, regional CSVs, and API batches.
 Using the API to create a batch does not require uploading the CSV itself.
 
+## Combined payroll summary for Alicia
+
+Before delivery, read the final dated store Excel sheets and combine people by
+their verified **GEID**, never by name alone. Each person appears once in the
+all-employee summary, even when they worked at multiple stores. Include the
+complete current-period roster, including employees and managers with no worked
+hours after completeness has been verified.
+
+`payroll_email_summary.py` now prepares:
+
+- A managers-only list with combined regular hours, overtime hours and total hours
+  across stores. Managers, co-managers and assistant managers have zero tips.
+- A complete employee-and-manager list with GEID, payroll identifiers, name, job
+  title, stores worked, regular hours, overtime hours, total hours and tips.
+- Alicia's email with both lists in its body, the dated store XLSX attachments,
+  and Excel-readable CSV attachments for both combined lists. The managers are
+  included in the full list and counted once in the overall totals.
+
+All hours display as decimal hours with two places. Crew tips are the sum of
+their finalized per-store allocations. The combined list does not reallocate
+tips, apply an overtime multiplier to hours, or recalculate overtime using an
+80-hour two-week threshold. TCP's regular/OT classification must already account
+for the applicable cross-store work. OT1/OT2 detail remains in the payroll source;
+the email's OT column combines overtime hours for display only.
+
+Regional ADP exports remain separate and retain company/file-number identity.
+These summary CSVs are for review and are not ADP import files.
+
+### Preparing the email
+
+Copy `payroll-email-manifest.example.json` into a private period folder under
+`reports/`. Populate the complete verified roster, every expected store, its
+matching Gateway tip total, and the exact workbook/sheet/header-row references.
+The example is deliberately unverified and incomplete; do not use its example
+store list or zero tip amount as live input.
+
+The workbook layout uses `GEID`, `Payroll ID`, `First Name`, `Last Name`,
+`Job Title`, `Total Hours`, `Tips`, `Reg Hours`, and `OT Hours`. Store workbook
+filenames must match the manifest period, such as
+`3356-01 9.8.26-9.21.26.xlsx`. Each store has exactly one workbook, with one
+period-total row per GEID. `Total Hours` must equal `Reg Hours` + `OT Hours` in
+the displayed two-decimal units. Recalculate and verify any Excel formulas
+before preparing the manifest; missing cached results and Excel errors block
+the summary instead of becoming zeros.
+
+The manifest records `verified`, `roster_verified`, `cross_store_ot_verified`
+and unresolved `issues`. These represent completed source checks, not an
+automatic verification of live TCP/ADP access. Roster roles must describe the
+selected period. Unknown roles, duplicate employee/store rows, unknown GEIDs,
+name/ID conflicts, manager tips, missing stores and unmatched Gateway totals
+stop preparation. Source hashes ensure the attached workbooks still match
+the files used to calculate the email.
+
+```powershell
+python -m pip install -r 'tips & payroll/requirements.txt'
+python 'tips & payroll/payroll_email_summary.py' 'tips & payroll/reports/PERIOD/manifest.json' 'tips & payroll/reports/PERIOD/email'
+```
+
+Outputs are `payroll-email.eml`, an HTML preview, combined CSVs, and an audit JSON
+with source hashes and store/employee detail. The message is addressed from
+`ab@caazllc.com` to `alicia@lccollc.com`. This stage **prepares** the email; it does
+not send it, schedule delivery or import ADP payroll. The live payroll orchestration
+must use this prepared message before its send/import stages.
+
 ## Confirmed timing and delivery
 
 - First planned run: September 22, 2026 at 08:00 America/Los_Angeles.
@@ -191,6 +255,12 @@ only performs manual TCP inspection. Gateway orchestration, ADP credentials and
 access, Google Workspace sender authorization, exports, and live scheduling
 still need integration and end-to-end validation. Do not mark a period completed
 or send a successful-payroll report when inputs or imports are incomplete.
+
+As of September 17, GitHub contains `CAAZ_GMAIL_APP_PASS`, `ADP_CERTIFICATE` and
+`ADP_PRIVATE_KEY`. `ADP_CLIENT_ID` and `ADP_CLIENT_SECRET` are still missing.
+Having the certificate/password secrets does not establish successful ADP or
+payroll email connectivity. The combined Excel/email summary is implemented and
+tested, but matched live-period store workbooks are not available yet.
 
 ## ADP permissions to configure
 
@@ -228,10 +298,10 @@ credentials", including after a refresh. The client ID/secret copy controls were
 disabled. The success notification confirms the add operation, but usable access
 and credentials remain unverified. Do not re-create duplicate projects to retry.
 
-The certificate wizard identifies the organization as `LC CO LLC`. It requires
-the organization's country, state, and city; the city/state have been requested
-from the user. No certificate was generated. The portal requires a signed ADP
-certificate and private key along with the client ID/secret; its token endpoint
+The certificate wizard identifies the organization as `LC CO LLC`. The user
+subsequently generated the certificate and stored `ADP_CERTIFICATE` and
+`ADP_PRIVATE_KEY` in GitHub. Their values were not read and token access remains
+unverified. ADP requires these alongside the client ID/secret; its token endpoint
 is `https://accounts.adp.com/auth/oauth/v2/token`.
 The user will copy credentials themselves. Access to AZ and TX companies still
 needs verification; creating this project does not establish cross-company access.

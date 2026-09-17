@@ -1,0 +1,15 @@
+{
+  "period": { "start_date": "2026-09-08", "end_date": "2026-09-21" },
+  "verified": false,
+  "roster_verified": false,
+  "cross_store_ot_verified": false,
+  "issues": ["Template only: replace with verified period data and the complete roster/store list."],
+  "expected_stores": ["3356-01"],
+  "gateway_tips": { "3356-01": "0.00" },
+  "workbooks": [
+    { "store": "3356-01", "file": "3356-01 9.8.26-9.21.26.xlsx", "sheet": "Payroll", "header_row": 1 }
+  ],
+  "roster": [
+    { "geid": "REPLACE_WITH_VERIFIED_GEID", "first_name": "Example", "last_name": "Only", "roles": ["Crew"], "payroll_ids": [] }
+  ]
+}
