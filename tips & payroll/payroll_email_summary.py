@@ -209,6 +209,8 @@ COLUMNS = [('GEID', 'geid'), ('Payroll ID', 'payroll_ids'), ('First Name', 'firs
 
 
 def display(row, key):
+    if key == 'name':
+        return f'{row["first_name"]} {row["last_name"]}'
     value = row[key]
     return ', '.join(value) if isinstance(value, list) else str(value)
 
@@ -224,13 +226,18 @@ def csv_text(rows):
     return output.getvalue()
 
 
-def table(rows):
-    head = ''.join(f'<th style="text-align:left;padding:6px;border:1px solid #ccc">{label}</th>' for label, _ in COLUMNS)
+def table(rows, include_stores=False):
+    # Compact markup keeps large rosters readable without per-cell CSS bloat.
+    columns = [('GEID', 'geid'), ('Name', 'name'), ('Job Title', 'job_title')]
+    if include_stores:
+        columns.append(('Stores worked', 'stores'))
+    columns += COLUMNS[-4:]
+    head = ''.join(f'<th>{label}</th>' for label, _ in columns)
     body = []
     for row in rows:
-        cells = ''.join(f'<td style="padding:6px;border:1px solid #ccc">{html.escape(display(row, key))}</td>' for _, key in COLUMNS)
+        cells = ''.join(f'<td>{html.escape(display(row, key))}</td>' for _, key in columns)
         body.append(f'<tr>{cells}</tr>')
-    return f'<table style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:12px"><thead><tr>{head}</tr></thead><tbody>{"".join(body)}</tbody></table>'
+    return f'<table border="1" cellpadding="5" cellspacing="0" style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:12px"><thead><tr>{head}</tr></thead><tbody>{"".join(body)}</tbody></table>'
 
 
 def build_message(summary, sources):
@@ -247,7 +254,7 @@ def build_message(summary, sources):
                   f'total hours: {totals["total_hours"]}; tips: ${totals["tips"]}.')
     message.add_alternative(
         f'<html><body><h2>Payroll {label}</h2><p>{note}</p><p>{total_line}</p>'
-        f'<h3>Managers — combined across stores</h3>{table(summary["managers"])}'
+        f'<h3>Managers — combined across stores</h3>{table(summary["managers"], include_stores=True)}'
         f'<h3>All employees and managers</h3>{table(summary["employees"])}'
         '<p>The manager rows above are also included in the full list. They are counted once in the totals.</p></body></html>', subtype='html')
     for name, rows in (('Combined payroll', summary['employees']), ('Combined managers', summary['managers'])):
