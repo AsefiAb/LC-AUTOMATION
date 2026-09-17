@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.tsbuildinfo
+data/
+reports/
+screenshots/
+sessions/
+*.xlsx
+*.log
+.env*
+!.env.example
+*.lnk

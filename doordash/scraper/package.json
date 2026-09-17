@@ -1,0 +1,19 @@
+{
+  "name": "disputeapp-scraper",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "scan": "node run.mjs --mode scan",
+    "outcomes": "node run.mjs --mode outcomes",
+    "report": "node report.mjs",
+    "test": "node --test tests/state.test.mjs tests/portal.test.mjs"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "playwright": "^1.48.0"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3"
+  }
+}

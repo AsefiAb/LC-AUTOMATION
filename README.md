@@ -6,6 +6,7 @@ Shared workspace for restaurant automation projects.
 tips & payroll/        TCP hours and tips reporting (current focus)
 sales automation/      Sales integrations and reporting
 dispute tracker/       Dispute tracking
+doordash/              DoorDash dispute review, outcome tracking, and email reports
 ```
 
 ## Credentials and data
@@ -20,3 +21,4 @@ For a fresh checkout, copy the project's `.env.example` to `.env` and fill
 in the values locally. Credentials are not included when cloning the repository.
 
 Start with [tips and payroll](tips%20%26%20payroll/README.md).
+DoorDash setup and migration status: [DoorDash](doordash/README.md).

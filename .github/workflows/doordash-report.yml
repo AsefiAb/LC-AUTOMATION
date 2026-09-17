@@ -1,0 +1,57 @@
+name: DoorDash outcomes and email
+on:
+  workflow_dispatch:
+    inputs:
+      send_email:
+        description: Send the refreshed tracker to Carter and Alicia
+        type: boolean
+        default: true
+permissions:
+  contents: read
+concurrency:
+  group: doordash-local
+  cancel-in-progress: false
+jobs:
+  report:
+    if: github.event.repository.private == true && vars.DOORDASH_RUNNER_ENABLED == 'true'
+    runs-on: [self-hosted, Windows, doordash]
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: doordash
+    env:
+      DOORDASH_DATA_DIR: ${{ vars.DOORDASH_DATA_DIR }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate persistent history location
+        run: |
+          if (-not $env:DOORDASH_DATA_DIR) { throw 'Set DOORDASH_DATA_DIR to the migrated data folder before running.' }
+          $dataPath = [IO.Path]::GetFullPath($env:DOORDASH_DATA_DIR)
+          $checkoutPath = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\') + '\'
+          if ($dataPath.StartsWith($checkoutPath, [StringComparison]::OrdinalIgnoreCase)) { throw 'History must be outside the runner checkout so checkout cleanup cannot erase it.' }
+          if (-not (Test-Path -LiteralPath (Join-Path $dataPath 'ledger.json'))) { throw 'Import the old dispute history first.' }
+      - name: Install reporting dependencies
+        run: |
+          npm ci --prefix scraper --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'npm install failed' }
+          python -m pip install tzdata==2025.3
+          if ($LASTEXITCODE -ne 0) { throw 'timezone installation failed' }
+      - name: Refresh saved order outcomes
+        run: node scraper/run.mjs --mode outcomes
+      - name: Build tracker
+        id: tracker
+        run: |
+          node scraper/report.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Tracker generation failed' }
+          $report = Get-ChildItem -LiteralPath reports -Filter 'DoorDash-Tracker-*.xlsx' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $report) { throw 'Tracker missing' }
+          "path=$($report.FullName)" >> $env:GITHUB_OUTPUT
+      - name: Email tracker
+        if: inputs.send_email
+        env:
+          CAAZ_GMAIL_APP_PASS: ${{ secrets.CAAZ_GMAIL_APP_PASS }}
+          REPORT_FILE: ${{ steps.tracker.outputs.path }}
+        run: python email_report.py "$env:REPORT_FILE"
