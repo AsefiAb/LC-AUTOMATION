@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 60
     defaults:
       run:
-        shell: pwsh
+        shell: powershell
         working-directory: doordash
     env:
       DOORDASH_DATA_DIR: ${{ vars.DOORDASH_DATA_DIR }}
@@ -48,7 +48,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Tracker generation failed' }
           $report = Get-ChildItem -LiteralPath reports -Filter 'DoorDash-Tracker-*.xlsx' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
           if (-not $report) { throw 'Tracker missing' }
-          "path=$($report.FullName)" >> $env:GITHUB_OUTPUT
+          "path=$($report.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
       - name: Email tracker
         if: inputs.send_email
         env:
