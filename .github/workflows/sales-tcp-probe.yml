@@ -1,0 +1,34 @@
+name: Inspect TCP sales labor capability
+on:
+  workflow_dispatch:
+    inputs:
+      report_date:
+        description: Day to inspect (YYYY-MM-DD)
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  inspect:
+    if: github.event.repository.private == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Inspect aggregate labor and rate availability
+        env:
+          REPORT_DATE: ${{ inputs.report_date }}
+          TCP_CLIENT_ID: ${{ secrets.TCP_CLIENT_ID }}
+          TCP_CLIENT_SECRET: ${{ secrets.TCP_CLIENT_SECRET }}
+          TCP_API_KEY: ${{ secrets.TCP_API_KEY }}
+          TCP_COMPANY_ID: ${{ vars.TCP_COMPANY_ID }}
+        run: python 'sales automation/tcp_labor.py' --date "$REPORT_DATE"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sales-tcp-labor
+          path: sales automation/reports/tcp-labor-*.json
+          retention-days: 3
+          if-no-files-found: error

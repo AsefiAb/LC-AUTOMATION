@@ -1,0 +1,199 @@
+{
+  "sender": "ab@caazllc.com",
+  "to": [
+    "ab@caazllc.com",
+    "alicia@lccollc.com",
+    "kerry@lccollc.com",
+    "carter@franbiznetwork.com",
+    "alex@caazllc.com"
+  ],
+  "cc": [
+    "jeff@caazllc.com",
+    "caleb@lccollc.com",
+    "wilder@lccollc.com"
+  ],
+  "timezone": "America/Los_Angeles",
+  "run_hour": 8,
+  "source_repository": "AsefiAb/salesautomation",
+  "accounts": [
+    {
+      "name": "Colorado",
+      "user_env": "ALTA_ACCOUNT1_USER",
+      "pass_env": "ALTA_ACCOUNT1_PASS",
+      "franchise": "3356",
+      "stores": [
+        "00001",
+        "00002",
+        "00003",
+        "00004",
+        "00005",
+        "00006",
+        "00007"
+      ],
+      "goals": {
+        "00001": "23.50%",
+        "00002": "21.50%",
+        "00003": "24.50%",
+        "00004": "24.50%",
+        "00005": "21.50%",
+        "00006": "21.50%",
+        "00007": "26.00%"
+      },
+      "excel_url": "https://1drv.ms/x/c/9ea0fa299251ed46/IQDFzgXYchxsTbPsvF-jmIdoASFjI3rartyRlwyVL3ai5Ck?e=DBVs9y"
+    },
+    {
+      "name": "Texas",
+      "user_env": "ALTA_ACCOUNT2_USER",
+      "pass_env": "ALTA_ACCOUNT2_PASS",
+      "franchise": "3910",
+      "stores": [
+        "00001",
+        "00002",
+        "00003",
+        "00004"
+      ],
+      "goals": {
+        "00001": "20%",
+        "00002": "19%",
+        "00003": "19%",
+        "00004": "20%"
+      },
+      "excel_url": "https://1drv.ms/x/c/9ea0fa299251ed46/IQCyIB6HjtKUSLgAOU9YrPZZASduj9zym8AQfqBoBlo7Vtc?e=Cql4JD"
+    },
+    {
+      "name": "Arizona",
+      "user_env": "ALTA_ACCOUNT3_USER",
+      "pass_env": "ALTA_ACCOUNT3_PASS",
+      "franchise": "3759",
+      "stores": [
+        "00001",
+        "00002",
+        "00003",
+        "00004",
+        "00005",
+        "00006",
+        "00007"
+      ],
+      "goals": {
+        "00001": "21.50%",
+        "00002": "22.25%",
+        "00003": "22.25%",
+        "00004": "23.50%",
+        "00005": "23.50%",
+        "00006": "26.00%",
+        "00007": "28.00%"
+      },
+      "excel_url": "https://1drv.ms/x/c/9ea0fa299251ed46/IQACWtuM_tRlTbsImmvjtar0ATOxlK0YTCI0xeS0a-DCUNE?e=pMypfw"
+    }
+  ],
+  "stores": [
+    {
+      "store": "3356-01",
+      "region": "CO",
+      "region_name": "Colorado",
+      "labor_goal_pct": "23.50"
+    },
+    {
+      "store": "3356-02",
+      "region": "CO",
+      "region_name": "Colorado",
+      "labor_goal_pct": "21.50"
+    },
+    {
+      "store": "3356-03",
+      "region": "CO",
+      "region_name": "Colorado",
+      "labor_goal_pct": "24.50"
+    },
+    {
+      "store": "3356-04",
+      "region": "CO",
+      "region_name": "Colorado",
+      "labor_goal_pct": "24.50"
+    },
+    {
+      "store": "3356-05",
+      "region": "CO",
+      "region_name": "Colorado",
+      "labor_goal_pct": "21.50"
+    },
+    {
+      "store": "3356-06",
+      "region": "CO",
+      "region_name": "Colorado",
+      "labor_goal_pct": "21.50"
+    },
+    {
+      "store": "3356-07",
+      "region": "CO",
+      "region_name": "Colorado",
+      "labor_goal_pct": "26.00"
+    },
+    {
+      "store": "3910-01",
+      "region": "TX",
+      "region_name": "Texas",
+      "labor_goal_pct": "20"
+    },
+    {
+      "store": "3910-02",
+      "region": "TX",
+      "region_name": "Texas",
+      "labor_goal_pct": "19"
+    },
+    {
+      "store": "3910-03",
+      "region": "TX",
+      "region_name": "Texas",
+      "labor_goal_pct": "19"
+    },
+    {
+      "store": "3910-04",
+      "region": "TX",
+      "region_name": "Texas",
+      "labor_goal_pct": "20"
+    },
+    {
+      "store": "3759-01",
+      "region": "AZ",
+      "region_name": "Arizona",
+      "labor_goal_pct": "21.50"
+    },
+    {
+      "store": "3759-02",
+      "region": "AZ",
+      "region_name": "Arizona",
+      "labor_goal_pct": "22.25"
+    },
+    {
+      "store": "3759-03",
+      "region": "AZ",
+      "region_name": "Arizona",
+      "labor_goal_pct": "22.25"
+    },
+    {
+      "store": "3759-04",
+      "region": "AZ",
+      "region_name": "Arizona",
+      "labor_goal_pct": "23.50"
+    },
+    {
+      "store": "3759-05",
+      "region": "AZ",
+      "region_name": "Arizona",
+      "labor_goal_pct": "23.50"
+    },
+    {
+      "store": "3759-06",
+      "region": "AZ",
+      "region_name": "Arizona",
+      "labor_goal_pct": "26.00"
+    },
+    {
+      "store": "3759-07",
+      "region": "AZ",
+      "region_name": "Arizona",
+      "labor_goal_pct": "28.00"
+    }
+  ]
+}
