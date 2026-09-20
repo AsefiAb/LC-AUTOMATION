@@ -67,7 +67,9 @@ async def collect(dates):
                     # Follow the authenticated site's actual reporting route;
                     # the old fallback /Reporting URL now returns page-not-found.
                     await page.locator('a[href*="Reporting"], a[href*="reporting"], [title*="Reporting"], [aria-label*="Reporting"]').first.click()
-                    await page.get_by_text('FINANCIAL VIEW', exact=True).click()
+                    stage = 'Financial View menu'
+                    await page.get_by_text(re.compile(r'^\s*Financial\s+View\s*$', re.I)).first.click()
+                    stage = 'Financial View frame'
                     await page.locator('iframe[src*="powerbi.com"]').first.wait_for()
                     frame = None
                     for _ in range(40):
@@ -140,6 +142,7 @@ async def collect(dates):
                         await page.screenshot(path=str(folder / (region + '.png')), mask=[page.locator('input')])
                         metadata = {'stage': stage, 'host': urlsplit(page.url).hostname,
                                     'frame_hosts': [urlsplit(f.url).hostname for f in page.frames],
+                                    'report_link_labels': await page.locator('a').all_text_contents(),
                                     'inputs': await page.locator('input:visible').evaluate_all('els=>els.map(e=>({id:e.id,type:e.type}))')}
                         (folder / (region + '.json')).write_text(json.dumps(metadata, indent=2), encoding='utf-8')
                     except Exception:

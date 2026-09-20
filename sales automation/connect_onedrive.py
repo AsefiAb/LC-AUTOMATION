@@ -62,14 +62,19 @@ def main():
     interval = max(5, device.get('interval', 5))
     while time.monotonic() < deadline:
         time.sleep(interval)
-        response = requests.post(base + 'token', data={
-            'client_id': args.client_id, 'grant_type': 'urn:ietf:params:oauth:grant-type:device_code',
-            'device_code': device['device_code']}, timeout=30)
+        try:
+            response = requests.post(base + 'token', data={
+                'client_id': args.client_id, 'grant_type': 'urn:ietf:params:oauth:grant-type:device_code',
+                'device_code': device['device_code']}, timeout=30)
+        except requests.RequestException:
+            print('Temporary connection interruption; still waiting for Microsoft sign-in.', flush=True)
+            continue
         result = response.json()
         if response.ok:
             if not result.get('refresh_token'):
                 raise SystemExit('No refresh token returned; offline access is required.')
             if destination:
+                print('Microsoft sign-in confirmed. Saving encrypted GitHub secrets.', flush=True)
                 destination.save('MS_CLIENT_ID', args.client_id)
                 destination.save('MS_REFRESH_TOKEN', result['refresh_token'])
                 print('Microsoft connection saved to the two LC-AUTOMATION GitHub secrets; no token file was written.', flush=True)

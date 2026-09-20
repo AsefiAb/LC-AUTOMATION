@@ -328,12 +328,38 @@ def main():
     if args.preflight:
         issues = setup_issues(config)
         if os.environ.get('CAAZ_GMAIL_APP_PASS'):
-            check_email_login()
+            try:
+                check_email_login()
+            except ReportError as exc:
+                issues.append(str(exc))
+        # Test OneDrive independently: a blocked sales portal must not hide
+        # whether the Microsoft connection and workbook links are usable.
+        if all(os.environ.get(k) for k in ('MS_CLIENT_ID', 'MS_REFRESH_TOKEN')):
+            try:
+                import io
+                import zipfile
+                from lxml import etree
+                drive = OneDrive()
+                for book in config['workbooks']:
+                    snapshot = drive.read(book['url'])
+                    with zipfile.ZipFile(io.BytesIO(snapshot['content'])) as archive:
+                        root = etree.fromstring(archive.read('xl/workbook.xml'), etree.XMLParser(resolve_entities=False, no_network=True))
+                        names = set(root.xpath('//*[local-name()="sheet"]/@name'))
+                        if not {'SALES', 'Trans'} <= names:
+                            raise WorkbookError('Expected SALES and Trans sheets are missing')
+                    print(book['region'] + ': existing OneDrive workbook read successfully; no changes made', flush=True)
+            except (DriveError, WorkbookError) as exc:
+                issues.append(str(exc))
+            except Exception as exc:
+                issues.append('OneDrive check failed (' + type(exc).__name__ + ')')
         if config.get('source') == 'Altametrics' and not altametrics.missing_secrets():
-            rows = altametrics.validate(day, altametrics.fetch(day, config), config)
-            output = FOLDER / 'reports' / ('altametrics-' + day + '.json')
-            output.parent.mkdir(parents=True, exist_ok=True)
-            output.write_text(json.dumps(rows, indent=2), encoding='utf-8')
+            try:
+                rows = altametrics.validate(day, altametrics.fetch(day, config), config)
+                output = FOLDER / 'reports' / ('altametrics-' + day + '.json')
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_text(json.dumps(rows, indent=2), encoding='utf-8')
+            except (altametrics.AltametricsError, ValueError) as exc:
+                issues.append(str(exc))
         if config.get('source') == 'TCP' and all(os.environ.get(k) for k in ('TCP_CLIENT_ID', 'TCP_CLIENT_SECRET', 'TCP_API_KEY')):
             labor = tcp_labor.fetch(day, config)
             output = FOLDER / 'reports' / ('tcp-labor-' + day + '.json')
