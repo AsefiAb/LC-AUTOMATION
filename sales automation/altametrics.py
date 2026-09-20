@@ -194,9 +194,10 @@ async def collect(day, config):
                         folder = Path(__file__).parent / 'reports' / ('login-check-' + day)
                         folder.mkdir(parents=True, exist_ok=True)
                         await page.screenshot(path=str(folder / (region + '.png')), mask=[page.locator('input')])
-                        meta = {'stage': stage, 'page_path': urlsplit(page.url).path,
-                                'frames': [{'host': urlsplit(f.url).hostname, 'path': urlsplit(f.url).path} for f in page.frames],
-                                'inputs': await page.locator('input').evaluate_all('els => els.map(e => ({id:e.id,type:e.type,name:e.name,visible:!!(e.offsetWidth || e.offsetHeight)}))')}
+                        meta = {'stage': stage, 'host': urlsplit(page.url).hostname,
+                                'dashboard_reached': 'ers_webApp' in page.url,
+                                'frame_hosts': [urlsplit(f.url).hostname for f in page.frames],
+                                'inputs': await page.locator('input:visible').evaluate_all('els => els.map(e => ({id:e.id,type:e.type}))')}
                         (folder / (region + '.json')).write_text(json.dumps(meta, indent=2), encoding='utf-8')
                     except Exception:
                         pass

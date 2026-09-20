@@ -3,6 +3,7 @@
 ADP is deliberately outside this pipeline. Preflight and preview never send mail.
 """
 import argparse
+import csv
 import hashlib
 import json
 import os
@@ -69,6 +70,28 @@ def hour_text(minutes):
     if not value.is_finite() or value < 0:
         raise ValueError('Negative or invalid TCP hours')
     return f'{value.quantize(Decimal(".01"), rounding=ROUND_HALF_UP):.2f}'
+
+
+def write_issues(report, payroll, output):
+    """A compact private correction list instead of asking users to read raw JSON."""
+    rows = []
+    for segment in summarize(report)['segments']:
+        if segment['category'] in ('Open punch', 'Zero-hour shift'):
+            rows.append([segment['employee_id'], segment['name'], segment['store'], segment['segment_id'],
+                         segment['time_in'], segment['time_out'] or '', segment['category']])
+    people = {str(p['employeeId']): p for p in report['datasets']['employees']['records']}
+    for issue in payroll['issues']:
+        if issue.startswith('GEID '):
+            eid, detail = issue[5:].split(': ', 1)
+            person = people.get(eid, {})
+            rows.append([eid, person.get('employeeName', ''), store_label(person.get('location')), '', '', '', detail])
+        elif issue.startswith('No calculated worked shifts'):
+            rows.append(['', '', '', '', '', '', issue])
+    with (output / ('TCP corrections ' + date_label(payroll['period']) + '.csv')).open('w', encoding='utf-8-sig', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(['GEID', 'Name', 'Store', 'Segment ID', 'Clock in', 'Clock out', 'Issue'])
+        for row in rows:
+            writer.writerow(["'" + str(v) if str(v).startswith(('=', '+', '-', '@')) else v for v in row])
 
 
 def normalize(report):
@@ -302,6 +325,7 @@ def main():
         (output / 'tcp-audit.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
         payroll = normalize(report)
         (output / 'payroll-input.json').write_text(json.dumps(payroll, indent=2), encoding='utf-8')
+        write_issues(report, payroll, output)
     tips = None
     if not gateway.missing_secrets():
         tips = gateway.fetch(dates)

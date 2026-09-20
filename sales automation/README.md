@@ -21,6 +21,15 @@ The six Altametrics secrets and Gmail app password were present on September 20,
 2026. OneDrive secrets were still missing. Presence alone does not verify login.
 Gateway credentials belong to payroll and are never substituted here.
 
+Live check on September 20: Gmail SMTP authentication succeeded. All three
+Altametrics accounts reached a visible CAPTCHA Security Check in GitHub Actions,
+so store data could not be collected. Private masked screenshots confirm the
+challenge. Approved unattended access from Altametrics, or an interactive local
+session with a human completing verification, is needed. Completing a challenge
+on a laptop does not necessarily authorize a fresh GitHub runner.
+
+[Live check](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35535705207).
+
 For OneDrive, register a public-client Microsoft application for the account
 that can edit the three files, enable public-client flows, and grant delegated
 `Files.ReadWrite` and `offline_access`. Then run:

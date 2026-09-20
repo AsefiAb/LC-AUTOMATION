@@ -79,4 +79,23 @@ partial payroll. Production delivery remains disabled until live input checks an
 the first real preview succeed. Gateway browser controls still require live
 verification with the separate Gateway credentials.
 
+## Live TCP check, September 20, 2026
+
+The September 6–19 diagnostic period returned 2,002 calculated segments matching
+2,002 work segments. It identified 430 roster employees, including zero-hour
+staff, and 438 employee/store rows. Delivery was correctly blocked by:
+
+- Three open punches and 148 closed shifts with zero calculated hours.
+- No calculated worked shifts on September 6, 7, or 14.
+- GEID 6584508 (Maximo Cano, 3759-04) has no classifiable active job assignment.
+- The six Gateway secrets are missing from this repository.
+
+The August 25–September 7 historical query returned no calculated worked shifts.
+This is unavailable data, not zero payroll. Confirm the historical hours access
+with TCP; resolve/recalculate the flagged shifts and assign the missing job title.
+Each preflight now writes a private `TCP corrections <period>.csv` with the exact
+GEIDs, stores and segment IDs to review. No payroll email has been sent.
+
+[Live TCP check](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35535706204).
+
 Run tests: `python -m unittest discover -s "tips & payroll" -p "test_*.py" -v`.

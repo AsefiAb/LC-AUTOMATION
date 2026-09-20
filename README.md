@@ -21,4 +21,6 @@ For a fresh checkout, copy the project's `.env.example` to `.env` and fill
 in the values locally. Credentials are not included when cloning the repository.
 
 Start with [tips and payroll](tips%20%26%20payroll/README.md).
+Payroll workflow and setup: [Payroll runbook](tips%20%26%20payroll/PAYROLL-RUNBOOK.md).
+Altametrics sales workflow and setup: [Sales reporting](sales%20automation/README.md).
 DoorDash setup and migration status: [DoorDash](doordash/README.md).

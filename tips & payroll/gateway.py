@@ -99,6 +99,7 @@ async def collect(dates):
                         selected = set(re.findall(r'\b\d{5}\b', await dropdown.input_value()))
                         if selected != {target}:
                             raise RuntimeError('Gateway selection is not exactly one requested store')
+                        old_report = await frame.locator('table').evaluate_all('tables => tables.filter(t => t.innerText.includes("InStore Tips (+)")).map(t => t.innerText).join("\\n")')
                         await frame.locator('button:has-text("View Report"), button:has-text("View report"), input[value="View Report"]').first.click()
                         try:
                             await frame.get_by_text('Loading report', exact=False).wait_for(state='visible', timeout=5000)
@@ -107,6 +108,12 @@ async def collect(dates):
                         await frame.get_by_text('Loading report', exact=False).wait_for(state='hidden', timeout=60000)
                         await frame.get_by_text(LABELS[0], exact=True).first.wait_for()
                         await page.wait_for_timeout(1000)
+                        if old_report:
+                            await frame.wait_for_function('old => {const text=[...document.querySelectorAll("table")].filter(t=>t.innerText.includes("InStore Tips (+)")).map(t=>t.innerText).join("\\n"); return text && text!==old}', arg=old_report, timeout=30000)
+                        if await frame.locator('#datePicker-input4').input_value() != start or await frame.locator('#datePicker-input9').input_value() != stop:
+                            raise RuntimeError('Gateway report dates changed during refresh')
+                        if set(re.findall(r'\b\d{5}\b', await dropdown.input_value())) != {target}:
+                            raise RuntimeError('Gateway store changed during refresh')
                         tables = await frame.locator('table').evaluate_all('tables => tables.map(t => [...t.rows].map(r => [...r.cells].map(c => c.innerText.trim())))')
                         result.append({'store': f'{franchise}-{index:02d}', **parse_tip_rows(tables)})
                     return result
