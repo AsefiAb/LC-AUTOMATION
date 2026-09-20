@@ -1,6 +1,6 @@
-"""TCP-only daily sales -> existing regional OneDrive workbooks -> Gmail.
+"""Regional sales source -> existing OneDrive workbooks -> Gmail.
 
-Delivery remains disabled until TCP supplies verified sales/transactions/cost.
+Altametrics supplies sales, transaction counts and Punched Labor %.
 Use --preflight to inspect setup, --preview to prepare without writing/sending.
 """
 import argparse
@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 import tcp_labor
+import altametrics
 from onedrive import OneDrive, DriveError
 from workbooks import update, WorkbookError
 
@@ -44,13 +45,18 @@ def checked_date(value, config):
 
 def setup_issues(config, require_email=True):
     issues = []
-    if config.get('source') != 'TCP':
-        issues.append('Only TCP is authorized as a business-data source.')
-    if not config.get('tcp_metrics'):
-        issues.append('TCP has no confirmed sales/transaction/actual labor-cost endpoint configured.')
-    if not config.get('labor_cost_verified'):
-        issues.append('TCP actual labor-cost definition has not been verified.')
-    keys = ['TCP_CLIENT_ID', 'TCP_CLIENT_SECRET', 'TCP_API_KEY', 'MS_CLIENT_ID', 'MS_REFRESH_TOKEN']
+    source = config.get('source')
+    keys = ['MS_CLIENT_ID', 'MS_REFRESH_TOKEN']
+    if source == 'Altametrics':
+        keys += [key for pair in altametrics.ACCOUNTS.values() for key in pair]
+    elif source == 'TCP':
+        if not config.get('tcp_metrics'):
+            issues.append('TCP has no confirmed sales/transaction/actual labor-cost endpoint configured.')
+        if not config.get('labor_cost_verified'):
+            issues.append('TCP actual labor-cost definition has not been verified.')
+        keys += ['TCP_CLIENT_ID', 'TCP_CLIENT_SECRET', 'TCP_API_KEY']
+    else:
+        issues.append('Unknown sales source; use the explicitly configured Altametrics or TCP adapter.')
     if require_email:
         keys.append('CAAZ_GMAIL_APP_PASS')
     for key in keys:
@@ -142,7 +148,8 @@ def email_message(day, rows, attachments, config):
     msg['Cc'] = ', '.join(config['cc'])
     msg['Subject'] = 'Daily Sales & Labor ' + day
     msg['Message-ID'] = '<sales-' + day + '@caazllc.com>'
-    lines = [f'Daily Sales & Labor — {day}', 'Source: TCP', '']
+    source_label = 'Altametrics — Punched Labor %' if config.get('source') == 'Altametrics' else 'TCP'
+    lines = [f'Daily Sales & Labor — {day}', 'Source: ' + source_label, '']
     sections = []
     for region in config['workbooks']:
         lines.append(region['name'])
@@ -151,19 +158,19 @@ def email_message(day, rows, attachments, config):
             if row['region'] != region['region']:
                 continue
             pct = row['labor_pct'] + '%' if row['labor_pct'] is not None else 'N/A (zero sales)'
-            lines.append(f"{row['store']}: Sales ${row['sales']} | Transactions {row['transactions']} | Hours {row['total_hours']} | Labor {pct} | Goal {row['labor_goal_pct']}%")
+            lines.append(f"{row['store']}: Sales ${row['sales']} | Transactions {row['transactions']} | Labor {pct} | Goal {row['labor_goal_pct']}%")
             cells.append('<tr>' + ''.join('<td>' + html.escape(str(value)) + '</td>' for value in
-                [row['store'], '$' + row['sales'], row['transactions'], row['total_hours'], pct, row['labor_goal_pct'] + '%']) + '</tr>')
+                [row['store'], '$' + row['sales'], row['transactions'], pct, row['labor_goal_pct'] + '%']) + '</tr>')
         lines.append('')
         sections.append('<h2>' + html.escape(region['name']) + '</h2><table><thead><tr>' +
-            ''.join('<th>' + h + '</th>' for h in ('Store', 'Sales', 'Transactions', 'Hours', 'Labor', 'Goal')) +
+            ''.join('<th>' + h + '</th>' for h in ('Store', 'Sales', 'Transactions', 'Labor', 'Goal')) +
             '</tr></thead><tbody>' + ''.join(cells) + '</tbody></table>')
     msg.set_content('\n'.join(lines))
     msg.add_alternative('<!doctype html><html><head><meta charset="utf-8"><style>'
         'body{font-family:Arial,sans-serif;color:#172c3e;margin:32px}table{border-collapse:collapse;width:100%;max-width:900px}'
         'th,td{padding:10px;border-bottom:1px solid #dce3e8;text-align:right}th:first-child,td:first-child{text-align:left}'
         'th{background:#173c53;color:white}h1{font-size:24px}h2{font-size:18px;margin-top:28px}'
-        '</style></head><body><h1>Daily Sales &amp; Labor — ' + day + '</h1><p>Source: TCP</p>' +
+        '</style></head><body><h1>Daily Sales &amp; Labor — ' + day + '</h1><p>Source: ' + html.escape(source_label) + '</p>' +
         ''.join(sections) + '</body></html>', subtype='html')
     for path in attachments:
         msg.add_attachment(path.read_bytes(), maintype='application',
@@ -177,14 +184,16 @@ class DeliveryLedger:
     Unknown send outcomes stay reserved and require checking Gmail Sent manually.
     A dedicated branch keeps receipts out of the application checkout.
     """
-    def __init__(self, day):
+    def __init__(self, day, namespace='sales'):
+        if namespace not in ('sales', 'payroll'):
+            raise ReportError('Unknown delivery namespace')
         repo = os.environ.get('GITHUB_REPOSITORY', '')
         if repo != 'AsefiAb/LC-AUTOMATION' or not os.environ.get('GITHUB_TOKEN'):
             raise ReportError('Live delivery requires the private repository workflow and its delivery ledger.')
         self.url = 'https://api.github.com/repos/' + repo
         self.headers = {'Authorization': 'Bearer ' + os.environ['GITHUB_TOKEN'],
                         'Accept': 'application/vnd.github+json'}
-        self.branch = 'sales-delivery-state'
+        self.branch = namespace + '-delivery-state'
         self.path = '/contents/deliveries/' + day + '.json'
         self.sha = None
         current = self.call('GET', '/git/ref/heads/' + self.branch, allowed=(200, 404))
@@ -253,8 +262,11 @@ def run(day, config, preview=False):
             return
         if previous:
             raise ReportError('A previous delivery is unresolved; inspect its receipt before retrying.')
-    labor = tcp_labor.fetch(day, config)
-    rows = validate(day, fetch_metrics(day, config), labor, config)
+    if config.get('source') == 'Altametrics':
+        rows = altametrics.validate(day, altametrics.fetch(day, config), config)
+    else:
+        labor = tcp_labor.fetch(day, config)
+        rows = validate(day, fetch_metrics(day, config), labor, config)
     drive = OneDrive()
     prepared = []
     output = FOLDER / 'reports' / day
@@ -297,13 +309,18 @@ def main():
     now = datetime.now(timezone.utc)
     if args.schedule_gate:
         local = now.astimezone(ZoneInfo(config['timezone']))
-        eligible = local.hour == config['run_hour']
+        eligible = local.hour >= config['run_hour']
         print('true' if eligible else 'false')
         return 0
     day = checked_date(args.date or report_date(now, config['timezone']), config)
     if args.preflight:
         issues = setup_issues(config)
-        if all(os.environ.get(k) for k in ('TCP_CLIENT_ID', 'TCP_CLIENT_SECRET', 'TCP_API_KEY')):
+        if config.get('source') == 'Altametrics' and not altametrics.missing_secrets():
+            rows = altametrics.validate(day, altametrics.fetch(day, config), config)
+            output = FOLDER / 'reports' / ('altametrics-' + day + '.json')
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(json.dumps(rows, indent=2), encoding='utf-8')
+        if config.get('source') == 'TCP' and all(os.environ.get(k) for k in ('TCP_CLIENT_ID', 'TCP_CLIENT_SECRET', 'TCP_API_KEY')):
             labor = tcp_labor.fetch(day, config)
             output = FOLDER / 'reports' / ('tcp-labor-' + day + '.json')
             output.parent.mkdir(parents=True, exist_ok=True)

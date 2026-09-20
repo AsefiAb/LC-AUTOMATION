@@ -1,8 +1,8 @@
-name: Daily TCP sales report
+name: Daily sales report
 on:
   schedule:
     # One local 08:00 run, with the Python gate accounting for Pacific DST.
-    - cron: '0 15,16 * * *'
+    - cron: '0 15,16,18 * * *'
   workflow_dispatch:
     inputs:
       report_date:
@@ -36,6 +36,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r 'sales automation/requirements.txt'
+      - run: python -m playwright install --with-deps chromium
       - name: Verify reporting safeguards
         run: python -m unittest discover -s 'sales automation' -p 'test_*.py' -v
       - name: Check local run time
@@ -52,6 +53,12 @@ jobs:
       - name: Validate sources, update workbooks, and deliver
         if: steps.gate.outputs.run == 'true'
         env:
+          COLORADO_USERNAME: ${{ secrets.COLORADO_USERNAME }}
+          COLORADO_PASSWORD: ${{ secrets.COLORADO_PASSWORD }}
+          AZ_USERNAME: ${{ secrets.AZ_USERNAME }}
+          AZ_PASSWORD: ${{ secrets.AZ_PASSWORD }}
+          TX_USERNAME: ${{ secrets.TX_USERNAME }}
+          TX_PASSWORD: ${{ secrets.TX_PASSWORD }}
           REPORT_DATE: ${{ inputs.report_date }}
           MODE: ${{ inputs.mode || 'deliver' }}
           TCP_CLIENT_ID: ${{ secrets.TCP_CLIENT_ID }}

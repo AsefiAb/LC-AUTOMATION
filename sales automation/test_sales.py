@@ -124,6 +124,7 @@ class WorkbookTests(unittest.TestCase):
 class DailyTests(unittest.TestCase):
     def fixture(self):
         config = copy.deepcopy(CONFIG)
+        config['source'] = 'TCP'
         config['labor_cost_verified'] = True
         metrics = [{'store': s['store'], 'date': '2026-09-16', 'sales': '1000.00',
                     'transactions': 100, 'labor_cost': '200.00'} for s in config['stores']]
@@ -161,12 +162,12 @@ class DailyTests(unittest.TestCase):
         metrics[0]['sales'] = '0'
         self.assertIsNone(daily.validate('2026-09-16', metrics, labor, config)[0]['labor_pct'])
 
-    def test_only_tcp_no_hidden_fallback(self):
-        self.assertEqual(CONFIG['source'], 'TCP')
-        with self.assertRaises(daily.ReportError):
-            daily.fetch_metrics('2026-09-16', CONFIG)
+    def test_altametrics_is_explicit_and_uses_its_own_credentials(self):
+        self.assertEqual(CONFIG['source'], 'Altametrics')
         with patch.dict(os.environ, {}, clear=True):
-            self.assertTrue(any('sales/transaction' in i for i in daily.setup_issues(CONFIG)))
+            issues = daily.setup_issues(CONFIG)
+            self.assertIn('Missing secret: COLORADO_USERNAME', issues)
+            self.assertFalse(any('TCP_CLIENT' in i for i in issues))
 
     def test_pacific_yesterday_across_dst_and_utc_boundary(self):
         self.assertEqual(daily.report_date(datetime(2026, 9, 17, 2, tzinfo=timezone.utc), 'America/Los_Angeles'), '2026-09-15')
