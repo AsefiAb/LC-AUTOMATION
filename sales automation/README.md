@@ -75,7 +75,12 @@ GitHub Actions -> **Daily sales report** -> Run workflow:
   books and validate date/store destinations, then test Altametrics extraction.
   Report missing connections and layout errors. No workbook uploads or email.
 - `preview`: read the existing OneDrive files, prepare updated copies and email
-  HTML in a private artifact. No workbook uploads or email.
+  draft (`email-preview.eml`) in a private artifact. No workbook uploads or email.
+
+The email body uses Colorado, Texas, and Arizona headings, one line per store
+with Sales, Transactions, Labor, and Goal, followed by `Thanks,` and `AB`.
+The report date remains in the subject. The three regional Excel workbooks stay
+attached, and the configured To/Cc recipients remain unchanged.
 - `deliver`: update the original files and send the report.
 
 Missing/ambiguous totals, wrong dates, incomplete store coverage, unsupported

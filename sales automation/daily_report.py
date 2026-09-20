@@ -6,7 +6,6 @@ Use --preflight to inspect setup, --preview to prepare without writing/sending.
 import argparse
 import base64
 import hashlib
-import html
 import json
 import os
 import smtplib
@@ -148,30 +147,17 @@ def email_message(day, rows, attachments, config):
     msg['Cc'] = ', '.join(config['cc'])
     msg['Subject'] = 'Daily Sales & Labor ' + day
     msg['Message-ID'] = '<sales-' + day + '@caazllc.com>'
-    source_label = 'Altametrics — Punched Labor %' if config.get('source') == 'Altametrics' else 'TCP'
-    lines = [f'Daily Sales & Labor — {day}', 'Source: ' + source_label, '']
-    sections = []
+    lines = []
     for region in config['workbooks']:
         lines.append(region['name'])
-        cells = []
         for row in rows:
             if row['region'] != region['region']:
                 continue
             pct = row['labor_pct'] + '%' if row['labor_pct'] is not None else 'N/A (zero sales)'
             lines.append(f"{row['store']}: Sales ${row['sales']} | Transactions {row['transactions']} | Labor {pct} | Goal {row['labor_goal_pct']}%")
-            cells.append('<tr>' + ''.join('<td>' + html.escape(str(value)) + '</td>' for value in
-                [row['store'], '$' + row['sales'], row['transactions'], pct, row['labor_goal_pct'] + '%']) + '</tr>')
         lines.append('')
-        sections.append('<h2>' + html.escape(region['name']) + '</h2><table><thead><tr>' +
-            ''.join('<th>' + h + '</th>' for h in ('Store', 'Sales', 'Transactions', 'Labor', 'Goal')) +
-            '</tr></thead><tbody>' + ''.join(cells) + '</tbody></table>')
+    lines.extend(['Thanks,', 'AB'])
     msg.set_content('\n'.join(lines))
-    msg.add_alternative('<!doctype html><html><head><meta charset="utf-8"><style>'
-        'body{font-family:Arial,sans-serif;color:#172c3e;margin:32px}table{border-collapse:collapse;width:100%;max-width:900px}'
-        'th,td{padding:10px;border-bottom:1px solid #dce3e8;text-align:right}th:first-child,td:first-child{text-align:left}'
-        'th{background:#173c53;color:white}h1{font-size:24px}h2{font-size:18px;margin-top:28px}'
-        '</style></head><body><h1>Daily Sales &amp; Labor — ' + day + '</h1><p>Source: ' + html.escape(source_label) + '</p>' +
-        ''.join(sections) + '</body></html>', subtype='html')
     for path in attachments:
         msg.add_attachment(path.read_bytes(), maintype='application',
             subtype='vnd.openxmlformats-officedocument.spreadsheetml.sheet', filename=path.name)
@@ -302,7 +288,7 @@ def run(day, config, preview=False):
     message = email_message(day, rows, [item[4] for item in prepared], config)
     if len(message.as_bytes()) > 24_000_000:
         raise ReportError('Email attachments exceed the supported 24 MB encoded-message limit.')
-    (output / 'email-preview.html').write_text(message.get_body(preferencelist=('html',)).get_content(), encoding='utf-8')
+    (output / 'email-preview.eml').write_bytes(message.as_bytes())
     (output / 'store-totals.json').write_text(json.dumps(rows, indent=2), encoding='utf-8')
     if preview:
         print('Private preview prepared. No workbook uploads or email sends performed.')
