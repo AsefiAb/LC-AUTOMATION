@@ -15,8 +15,8 @@ tables and all workbooks attached. It does not access or import into ADP.
 | Texas Gateway | `TX_GATEWAY_USER`, `TX_GATEWAY_PASS` |
 | Gmail (already present) | `CAAZ_GMAIL_APP_PASS` |
 
-Altametrics secrets are for sales only. GitHub cannot reveal secret values from
-the old tips-yolo repo; add Gateway values here from the owner's credential store.
+All TCP, Gateway, and Gmail secrets are present. Gateway extraction was verified
+for all 18 stores on September 20. Altametrics secrets are for sales only.
 No Microsoft or ADP credentials are required for payroll reports.
 
 ## Calculation and checks
@@ -76,28 +76,66 @@ An uncertain send requires checking Gmail Sent before manually clearing a receip
 Private artifacts retain source audit data, mapping issues and generated reports
 for three days. The workflow fails on unresolved issues rather than emailing
 partial payroll. Production delivery remains disabled until live input checks and
-the first real preview succeed. Gateway browser controls still require live
-verification with the separate Gateway credentials.
+the first real preview succeed. Gateway extraction and Gmail authentication have
+passed live checks; final payroll reconciliation is still outstanding.
 
 ## Live TCP check, September 20, 2026
 
-The September 6–19 diagnostic period returned 2,002 calculated segments matching
-2,002 work segments. It identified 430 roster employees, including zero-hour
-staff, and 438 employee/store rows. Delivery was correctly blocked by:
+The latest September 6–19 diagnostic returned 2,004 calculated segments matching
+2,004 work segments. Delivery was correctly blocked by:
 
 - Three open punches and 148 closed shifts with zero calculated hours.
 - No calculated worked shifts on September 6, 7, or 14.
 - GEID 6584508 (Maximo Cano, 3759-04) has no classifiable active job assignment.
-- At the time of that diagnostic run, Gateway secrets were missing. All six
-  have since been added, and live login reached the regional reporting pages.
-  Report extraction is being verified separately.
+- Gateway tips were extracted successfully for all 18 stores.
 
 The August 25–September 7 historical query returned no calculated worked shifts.
-This is unavailable data, not zero payroll. Confirm the historical hours access
-with TCP; resolve/recalculate the flagged shifts and assign the missing job title.
+This is unavailable data, not zero payroll. Confirm historical hours access
+with TCP. Do not re-enter the 148 closed shifts: TCP's UI and native report have
+their calculated hours; the API returned zero. Actual open punches still require
+verified clock-out times, and the missing employee title still needs confirmation.
 Each preflight now writes a private `TCP corrections <period>.csv` with the exact
 GEIDs, stores and segment IDs to review. No payroll email has been sent.
 
-[Live TCP check](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35535706204).
+[Live TCP/Gateway check](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35539807831).
+
+## Verified manual fallback for the API discrepancy
+
+On September 20, the Complete Payroll OpenXML export for September 14 matched all
+148 API shifts by GEID, job code, clock-in and clock-out. Its calculated regular,
+OT1 and OT2 values restored all 148 zero splits. The original API audit stays
+unchanged; a separate reconciled audit records the export hash and each change.
+This fixes report input locally; it does not repair the API or edit timecards.
+
+In TCP: Reports → Period Reports → Complete Payroll. Choose the affected dates,
+clear employee status exclusions, and Download → OpenXML. Keep the resulting XML
+under a private reports folder. A report can cover the whole payroll period or a
+subset of dates, but every worked shift in those dates must match the API.
+Leave, comp time, open punches, missing shifts, duplicate shifts and conflicting
+nonzero calculations cannot be silently substituted by this fallback.
+
+With an API audit and same-period Gateway JSON already downloaded from the private
+workflow artifact, no local secrets are needed to reconcile and attempt a preview:
+
+```powershell
+python 'tips & payroll/tcp_report_fallback.py' `
+  'tips & payroll/reports/PERIOD/tcp-audit.json' `
+  'tips & payroll/reports/PERIOD/Complete Payroll.xml' `
+  'tips & payroll/reports/PERIOD/tcp-reconciled-audit.json' `
+  --gateway-input 'tips & payroll/reports/PERIOD/gateway-input.json'
+```
+
+This command never sends email. It writes remaining corrections in `native-preview`
+and produces workbooks/email preview only when the completed 14-day period passes
+all TCP and Gateway checks. Live local runs also accept `payroll_run.py --tcp-export
+PATH` (repeat for separate exports). The scheduled GitHub run has no browser XML
+source; fully unattended delivery still requires the TCP API discrepancy to be
+resolved. Do not enable the schedule merely because the fallback matched.
+
+The September 6–19 fallback check now has zero closed zero-hour shifts. It still
+blocks on three open punches, the unknown title, and missing historical worked
+days September 6–7. Those two dates are outside the upcoming September 8–21 payroll.
+September 8–21 cannot be finalized until September 22; obtain fresh sources after
+the period closes and after any corrections.
 
 Run tests: `python -m unittest discover -s "tips & payroll" -p "test_*.py" -v`.

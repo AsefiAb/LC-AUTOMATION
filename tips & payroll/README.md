@@ -52,7 +52,7 @@ administrator.
 
 - API base URL: `https://api.tcplusondemand.com`.
 - Authentication requires `x-api-key` and `Authorization: Bearer <token>`.
-- [Hours](https://timeclock-plus.readme.io/reference/hours_getall) provides
+- [Hours](https://timeclock-plus.readme.io/reference/hours_getall-1) provides
   calculated hours with date filters and pagination.
 - [Locations](https://timeclock-plus.readme.io/reference/locations_getlocations-1)
   and cost codes can help establish how this company represents store 3356-01.
@@ -117,14 +117,20 @@ Both inputs require `verified: true`, no unresolved `issues`, and identical
 Gateway input has `stores` containing `store` and `total_tips`. Payroll input
 has `employees` containing `store`, `employee_id`, `name`, `roles` (a list), and
 `total_hours` (decimal hours to two places, including overtime).
-Accepted crew titles are `Crew` and `Crew Member`. `Crew Leader` needs an
-explicit eligibility classification before it can enter a live calculation.
+Accepted eligible titles are `Crew`, `Crew Member`, and `Crew Leader`, as confirmed
+by the owner. Management titles remain excluded.
 
 The supplied screenshot verifies the numeric rule: `766.36 / 583.41 * 59.51`
 gives `78.17`. Automated tests reproduce all 15 example amounts and reconcile
 their sum to `766.36`.
 
 ## Current source limitations
+
+September 20 update: a native TCP Complete Payroll XML export matched all 148
+September 14 shifts exactly and supplied their missing calculated regular/OT
+splits. The verified manual fallback is described in [the runbook](PAYROLL-RUNBOOK.md#verified-manual-fallback-for-the-api-discrepancy).
+It preserves the original API evidence and all remaining delivery checks. This
+does not yet make the scheduled API-only workflow ready for unattended payroll.
 
 The Gateway artifact retrieved from `tips-yolo` covers August 25–September 7,
 2026. The TCP/PDF comparison covers September 1–14, 2026. Do not combine them.

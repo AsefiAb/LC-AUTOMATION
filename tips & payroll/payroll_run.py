@@ -297,6 +297,8 @@ def main():
     parser.add_argument('--end')
     parser.add_argument('--mode', choices=['preflight', 'preview', 'deliver'], default='preflight')
     parser.add_argument('--schedule-gate', action='store_true')
+    parser.add_argument('--tcp-export', type=Path, action='append', default=[],
+                        help='Native Complete Payroll XML to reconcile zero API hours; repeat for separate dates')
     args = parser.parse_args()
     now = datetime.now(timezone.utc)
     if args.schedule_gate:
@@ -323,6 +325,11 @@ def main():
     if all(os.environ.get(key) for key in ('TCP_CLIENT_ID', 'TCP_CLIENT_SECRET', 'TCP_API_KEY')):
         report = fetch_tcp(dates)
         (output / 'tcp-audit.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
+        if args.tcp_export:
+            from tcp_report_fallback import apply_export
+            for native_xml in args.tcp_export:
+                report = apply_export(report, native_xml)
+            (output / 'tcp-reconciled-audit.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
         payroll = normalize(report)
         (output / 'payroll-input.json').write_text(json.dumps(payroll, indent=2), encoding='utf-8')
         write_issues(report, payroll, output)

@@ -2,6 +2,8 @@
 
 Shared workspace for restaurant automation projects.
 
+Current verified progress and remaining actions: [Operational status](STATUS.md).
+
 ```text
 tips & payroll/        TCP hours and tips reporting (current focus)
 sales automation/      Sales integrations and reporting
