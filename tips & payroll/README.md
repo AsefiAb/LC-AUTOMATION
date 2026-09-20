@@ -130,6 +130,12 @@ The Gateway artifact retrieved from `tips-yolo` covers August 25–September 7,
 2026. The TCP/PDF comparison covers September 1–14, 2026. Do not combine them.
 The API snapshot omitted calculated hours for September 14 even though the
 payroll PDF included them; the incomplete snapshot must not feed an allocation.
+All 148 closed zero-hour segments in the September 6-19 diagnostic fall on
+September 14. These are API discrepancies to investigate, not instructions to
+re-enter or change the punches. The supplied September 1-14 PDF provides
+independent evidence of nonzero hours on that date. Review the open punches and
+missing job assignment separately; use the original PDF/API segment IDs when
+raising the calculated-hours issue with TCP support.
 
 The sample ADP CSV is a formatting reference only. Do not assume its company
 code, batch ID, employee roster, rates, or existing values are the actual target
