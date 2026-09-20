@@ -96,27 +96,20 @@ async def collect(dates):
                             await frame.locator(selector).press('Tab')
                             if await frame.locator(selector).input_value() != value:
                                 raise RuntimeError('Gateway report date did not match')
-                        dropdown = frame.locator('#LocationNumber')
+                        dropdown = frame.get_by_label('Franchise Store', exact=True)
                         stage = 'store selection'
                         await dropdown.click()
                         # Read the checkbox labels/state, not fixed screen coordinates.
-                        options = frame.get_by_role('checkbox')
                         target = f'{index:05d}'
-                        matched = False
-                        for i in range(await options.count()):
-                            option = options.nth(i)
-                            text = (await option.get_attribute('aria-label') or await option.inner_text()).strip()
-                            if re.search(r'select all', text, re.I):
-                                if await option.is_checked():
-                                    await option.uncheck()
-                        for i in range(await options.count()):
-                            option = options.nth(i)
-                            text = (await option.get_attribute('aria-label') or await option.inner_text()).strip()
-                            if re.fullmatch(r'\d{5}', text):
-                                await option.set_checked(text == target)
-                                matched = matched or text == target
-                        if not matched:
-                            raise RuntimeError('Gateway store options could not be identified safely')
+                        await frame.get_by_role('checkbox').first.wait_for(state='visible')
+                        for number in range(1, count + 1):
+                            label = f'{number:05d}'
+                            option = frame.get_by_role('checkbox', name=re.compile(r'\b' + label + r'\b'))
+                            if await option.count() != 1:
+                                raise RuntimeError('Gateway store checkbox labels are ambiguous or missing')
+                            await option.set_checked(label == target)
+                            if await option.is_checked() != (label == target):
+                                raise RuntimeError('Gateway store checkbox did not retain selection')
                         await dropdown.press('Escape')
                         selected = set(re.findall(r'\b\d{5}\b', await dropdown.input_value()))
                         if selected != {target}:
@@ -154,6 +147,7 @@ async def collect(dates):
                         for report_frame in page.frames:
                             if 'paginated-reports.powerbi.com' in report_frame.url:
                                 metadata['report_controls'] += await report_frame.locator('input').evaluate_all('els=>els.slice(0,100).map(e=>({id:e.id,type:e.type,label:e.getAttribute("aria-label"),visible:!!(e.offsetWidth||e.offsetHeight)}))')
+                                metadata['checkboxes'] = await report_frame.get_by_role('checkbox').evaluate_all('els=>els.map(e=>({html:e.outerHTML.slice(0,2500)}))')
                         (folder / (region + '.json')).write_text(json.dumps(metadata, indent=2), encoding='utf-8')
                     except Exception:
                         pass

@@ -4,6 +4,7 @@ import json
 import os
 import unittest
 import zipfile
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -18,13 +19,15 @@ CONFIG = json.loads((Path(__file__).parent / 'config.json').read_text())
 
 class PreflightTests(unittest.TestCase):
     def test_onedrive_checked_even_when_sales_portal_is_blocked_without_writes(self):
-        with patch.dict(os.environ, {'MS_CLIENT_ID': 'test', 'MS_REFRESH_TOKEN': 'test'}, clear=True), \
+        with tempfile.TemporaryDirectory() as folder, patch.object(daily, 'FOLDER', Path(folder)), \
+             patch.dict(os.environ, {'MS_CLIENT_ID': 'test', 'MS_REFRESH_TOKEN': 'test'}, clear=True), \
              patch('sys.argv', ['daily_report.py', '--preflight', '--date', '2026-09-16']), \
              patch.object(daily, 'checked_date', return_value='2026-09-16'), \
              patch.object(daily.altametrics, 'missing_secrets', return_value=[]), \
              patch.object(daily.altametrics, 'fetch', side_effect=daily.altametrics.AltametricsError('Interactive verification required')), \
              patch.object(daily, 'OneDrive') as drive, redirect_stdout(io.StringIO()) as output:
             drive.return_value.read.return_value = {'content': sample_workbook()}
+            (Path(folder) / 'config.json').write_text(json.dumps(CONFIG), encoding='utf-8')
             self.assertEqual(daily.main(), 1)
             self.assertEqual(drive.return_value.read.call_count, 3)
             drive.return_value.write.assert_not_called()
