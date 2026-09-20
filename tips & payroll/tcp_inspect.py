@@ -48,7 +48,8 @@ def project(kind, record):
         "jobcodes": "id jobCodeId description jobClass jobCodeGroup locationName active leaveCode forceUnpaid askTracked1 askTracked2 askTracked3",
         "costcodes": "id fullName description isActive",
         "customfields": "id description category fieldNumber moduleType moduleNumber subModuleNumber",
-        "employees": "employeeId employeeRecordId employeeName firstName lastName department location defaultJobCode defaultCostCode roleId isSuspended terminationDate",
+        "employees": "employeeId employeeRecordId employeeName firstName lastName hireDate department location defaultJobCode defaultCostCode roleId isSuspended terminationDate",
+        "employeejobcodes": "id employeeId jobCodeId activePeriodStartDate activePeriodStopDate isActive isDefault description location",
         "worksegments": "id employeeId employeeRecordId jobCodeId costCode laborCodes timeIn timeOut tracked1 tracked2 tracked3 employeeDefaultLocationId customFields missedInPunch missedOutPunch",
     }
     if kind == "hours":

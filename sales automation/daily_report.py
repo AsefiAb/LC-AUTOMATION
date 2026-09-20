@@ -335,7 +335,7 @@ def main():
 if __name__ == '__main__':
     try:
         sys.exit(main())
-    except (ReportError, DriveError, WorkbookError, tcp_labor.InspectionError, ValueError) as exc:
+    except (ReportError, DriveError, WorkbookError, tcp_labor.InspectionError, altametrics.AltametricsError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         sys.exit(1)
     except Exception as exc:

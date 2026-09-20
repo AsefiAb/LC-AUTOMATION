@@ -69,7 +69,7 @@ class AllocationTests(unittest.TestCase):
 
     def test_unknown_role_and_duplicate_rows_are_not_silently_accepted(self):
         g, p = self.inputs(["10.00"])
-        p["employees"][0]["roles"] = ["Crew Leader"]
+        p["employees"][0]["roles"] = ["Unclassified title"]
         with self.assertRaises(ValueError):
             allocate(g, p)
         p["employees"][0]["roles"] = ["Crew"]

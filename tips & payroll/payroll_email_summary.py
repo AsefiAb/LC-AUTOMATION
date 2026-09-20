@@ -19,13 +19,13 @@ from allocate_tips import MANAGEMENT, cents, decimal_text, period, store_id
 
 
 ROLE_NAMES = {
-    'crew': 'crew', 'crew member': 'crew member',
+    'crew': 'crew', 'crew member': 'crew member', 'crew leader': 'crew leader',
     'manager': 'manager', 'mgr': 'manager', 'general manager': 'manager',
     'co-manager': 'co-manager', 'co manager': 'co-manager', 'co mgr': 'co-manager', 'comanager': 'co-manager',
     'assistant manager': 'assistant manager', 'assistant mgr': 'assistant manager',
     'asst manager': 'assistant manager', 'asst mgr': 'assistant manager',
 }
-LABELS = {'crew': 'CREW', 'crew member': 'CREW', 'manager': 'MANAGER',
+LABELS = {'crew': 'CREW', 'crew member': 'CREW', 'crew leader': 'CREW LEADER', 'manager': 'MANAGER',
           'co-manager': 'CO-MANAGER', 'assistant manager': 'ASST MGR'}
 FIELDS = ['GEID', 'Payroll ID', 'First Name', 'Last Name', 'Job Title', 'Total Hours', 'Tips', 'Reg Hours', 'OT Hours']
 ALIASES = {'regular hours': 'Reg Hours', 'reg hours': 'Reg Hours', 'overtime hours': 'OT Hours', 'ot hours': 'OT Hours'}

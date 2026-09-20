@@ -13,6 +13,10 @@ ACCOUNTS = {'CO': ('COLORADO_USERNAME', 'COLORADO_PASSWORD'),
             'AZ': ('AZ_USERNAME', 'AZ_PASSWORD'), 'TX': ('TX_USERNAME', 'TX_PASSWORD')}
 
 
+class AltametricsError(RuntimeError):
+    pass
+
+
 def missing_secrets():
     return [key for pair in ACCOUNTS.values() for key in pair if not os.environ.get(key)]
 
@@ -83,11 +87,13 @@ async def fill_first(page, selectors, value):
 async def login(page, region):
     user_key, pass_key = ACCOUNTS[region]
     await page.goto(URL, wait_until='domcontentloaded')
+    await page.locator('input[type="password"]:visible').first.wait_for()
     for _ in range(2):  # Initial login plus the documented Texas SSO redirect.
         await guard(page)
         await fill_first(page, ['input[name="username"]', 'input[name="userId"]', '#validationTooltip01', 'input[name="userName"]', 'input[type="text"]'], os.environ[user_key])
         await fill_first(page, ['input[type="password"]'], os.environ[pass_key])
-        await page.locator('button[type="submit"], input[type="submit"], input[value="Login"], button:has-text("Login"), button:has-text("Sign in")').first.click()
+        await page.locator('button[type="submit"]:visible, input[type="submit"]:visible, input[value="Login"]:visible, input[value="GO"]:visible, button:has-text("Log"):visible, button:has-text("Sign"):visible').first.click()
+        await page.wait_for_timeout(8000)
         await settle(page)
         if 'ers_webApp' in page.url:
             return
@@ -158,26 +164,37 @@ async def collect(day, config):
         try:
             async def region_report(region):
                 context = await browser.new_context()
+                stage = 'login'
                 try:
                     page = await context.new_page()
                     page.set_default_timeout(30000)
                     await login(page, region)
+                    print(f'{region}: Altametrics login confirmed', flush=True)
                     rows = []
                     for store in (s['store'] for s in config['stores'] if s['region'] == region):
+                        stage = 'store selection'
                         await select_store(page, store)
+                        stage = 'date selection'
                         await select_date(page, day)
                         selected = await page.locator('#FILTER_STORE_GO').locator('xpath=ancestor::form[1]').locator('input.storeSelectorDrop:visible').input_value()
                         franchise, index = store.split('-')
                         if set(re.findall(r'\d{4,5}-\d{2,5}', selected)) != {f'0{franchise}-{int(index):05d}'}:
                             raise RuntimeError('Report date change reset the store selection')
+                        stage = 'metric parsing'
                         tables = await page.locator('table').evaluate_all('tables => tables.map(t => [...t.rows].map(r => [...r.cells].map(c => c.innerText.trim())))')
                         rows.append({'store': store, 'date': day, **parse_tables(tables)})
                     return rows
                 except Exception as exc:
-                    raise RuntimeError(f'{region}: Altametrics extraction failed ({type(exc).__name__}); check credentials, challenges and dashboard layout.') from None
+                    detail = str(exc) if type(exc) in (RuntimeError, ValueError) else type(exc).__name__
+                    raise AltametricsError(f'{region}: {stage} failed: {detail}') from None
                 finally:
                     await context.close()
-            groups = await asyncio.gather(*(region_report(region) for region in ACCOUNTS))
+            groups = await asyncio.gather(*(region_report(region) for region in ACCOUNTS), return_exceptions=True)
+            failures = [str(g) for g in groups if isinstance(g, AltametricsError)]
+            if failures:
+                raise AltametricsError('; '.join(failures))
+            if any(isinstance(g, BaseException) for g in groups):
+                raise AltametricsError('Regional browser session failed')
             return [row for group in groups for row in group]
         finally:
             await browser.close()
