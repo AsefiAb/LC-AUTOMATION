@@ -148,6 +148,7 @@ async def collect(dates):
                             if 'paginated-reports.powerbi.com' in report_frame.url:
                                 metadata['report_controls'] += await report_frame.locator('input').evaluate_all('els=>els.slice(0,100).map(e=>({id:e.id,type:e.type,label:e.getAttribute("aria-label"),visible:!!(e.offsetWidth||e.offsetHeight)}))')
                                 metadata['checkboxes'] = await report_frame.get_by_role('checkbox').evaluate_all('els=>els.map(e=>({html:e.outerHTML.slice(0,2500)}))')
+                                metadata['store_options'] = await report_frame.get_by_text('00001', exact=True).evaluate_all('els=>els.map(e=>({html:e.parentElement.outerHTML.slice(0,8000)}))')
                         (folder / (region + '.json')).write_text(json.dumps(metadata, indent=2), encoding='utf-8')
                     except Exception:
                         pass
