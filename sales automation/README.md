@@ -44,6 +44,20 @@ ignored `sales automation/data/onedrive-secrets.json`; copy them into GitHub
 Secrets. It does not print tokens. A client secret is not needed for this public
 client. Local ignored files are not protected from OneDrive sync.
 
+For direct encrypted upload to this private GitHub repo, using the local Git
+credential manager instead of saving a token file:
+
+```powershell
+python -m pip install -r 'sales automation/requirements-setup.txt'
+python 'sales automation/connect_onedrive.py' --client-id YOUR_MICROSOFT_APP_ID --github
+```
+
+Register the app while signed in as the business administrator. Authorize file
+access separately with the account that edits the workbooks (the original setup
+uses `abasefi1@outlook.com`). The personal Outlook account does not need access to
+the Entra administration portal. Enable public-client flows for device sign-in;
+the app must support personal Microsoft accounts. No client secret is needed.
+
 ## Run modes
 
 GitHub Actions -> **Daily sales report** -> Run workflow:

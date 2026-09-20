@@ -64,7 +64,9 @@ async def collect(dates):
                     await page.locator('button[type="submit"], input[type="submit"], button:has-text("Login")').first.click()
                     await page.wait_for_timeout(2000)
                     stage = 'report navigation'
-                    await page.goto('https://www.lcegateway.com/Reporting', wait_until='domcontentloaded')
+                    # Follow the authenticated site's actual reporting route;
+                    # the old fallback /Reporting URL now returns page-not-found.
+                    await page.locator('a[href*="Reporting"], a[href*="reporting"], [title*="Reporting"], [aria-label*="Reporting"]').first.click()
                     await page.get_by_text('FINANCIAL VIEW', exact=True).click()
                     await page.locator('iframe[src*="powerbi.com"]').first.wait_for()
                     frame = None
