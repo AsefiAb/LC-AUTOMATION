@@ -249,6 +249,18 @@ def deliver(message, ledger, day):
     return 'sent'
 
 
+def check_email_login():
+    password = os.environ.get('CAAZ_GMAIL_APP_PASS', '').replace(' ', '')
+    if not password:
+        raise ReportError('Missing CAAZ_GMAIL_APP_PASS')
+    try:
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=ssl.create_default_context(), timeout=30) as smtp:
+            smtp.login('ab@caazllc.com', password)
+    except (smtplib.SMTPException, OSError):
+        raise ReportError('Gmail authentication failed; no email sent') from None
+    print('Gmail authentication confirmed; no email sent', flush=True)
+
+
 def run(day, config, preview=False):
     issues = setup_issues(config, require_email=not preview)
     if issues:
@@ -315,6 +327,8 @@ def main():
     day = checked_date(args.date or report_date(now, config['timezone']), config)
     if args.preflight:
         issues = setup_issues(config)
+        if os.environ.get('CAAZ_GMAIL_APP_PASS'):
+            check_email_login()
         if config.get('source') == 'Altametrics' and not altametrics.missing_secrets():
             rows = altametrics.validate(day, altametrics.fetch(day, config), config)
             output = FOLDER / 'reports' / ('altametrics-' + day + '.json')

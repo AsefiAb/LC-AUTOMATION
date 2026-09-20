@@ -5,6 +5,9 @@ No password changes, CAPTCHA removal, guessed totals, workbook writes or emails.
 import asyncio
 import os
 import re
+import json
+from pathlib import Path
+from urllib.parse import urlsplit
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
@@ -90,7 +93,7 @@ async def login(page, region):
     await page.locator('input[type="password"]:visible').first.wait_for()
     for _ in range(2):  # Initial login plus the documented Texas SSO redirect.
         await guard(page)
-        await fill_first(page, ['input[name="username"]', 'input[name="userId"]', '#validationTooltip01', 'input[name="userName"]', 'input[type="text"]'], os.environ[user_key])
+        await fill_first(page, ['input[name="username"]:visible', 'input[name="userId"]:visible', '#validationTooltip01:visible', 'input[name="userName"]:visible', 'input[type="email"]:visible', 'input[type="text"]:visible'], os.environ[user_key])
         await fill_first(page, ['input[type="password"]'], os.environ[pass_key])
         await page.locator('button[type="submit"]:visible, input[type="submit"]:visible, input[value="Login"]:visible, input[value="GO"]:visible, button:has-text("Log"):visible, button:has-text("Sign"):visible').first.click()
         await page.wait_for_timeout(8000)
@@ -185,6 +188,18 @@ async def collect(day, config):
                         rows.append({'store': store, 'date': day, **parse_tables(tables)})
                     return rows
                 except Exception as exc:
+                    # Private diagnostic image masks inputs, including passwords.
+                    # Only control metadata (never field values/page text) is saved.
+                    try:
+                        folder = Path(__file__).parent / 'reports' / ('login-check-' + day)
+                        folder.mkdir(parents=True, exist_ok=True)
+                        await page.screenshot(path=str(folder / (region + '.png')), mask=[page.locator('input')])
+                        meta = {'stage': stage, 'page_path': urlsplit(page.url).path,
+                                'frames': [{'host': urlsplit(f.url).hostname, 'path': urlsplit(f.url).path} for f in page.frames],
+                                'inputs': await page.locator('input').evaluate_all('els => els.map(e => ({id:e.id,type:e.type,name:e.name,visible:!!(e.offsetWidth || e.offsetHeight)}))')}
+                        (folder / (region + '.json')).write_text(json.dumps(meta, indent=2), encoding='utf-8')
+                    except Exception:
+                        pass
                     detail = str(exc) if type(exc) in (RuntimeError, ValueError) else type(exc).__name__
                     raise AltametricsError(f'{region}: {stage} failed: {detail}') from None
                 finally:

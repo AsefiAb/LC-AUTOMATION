@@ -1,7 +1,9 @@
 # Tips and payroll
 
-Current task: allocate each store's Gateway tips among eligible crew using
-verified decimal hours, then prepare the ADP payroll export. Store **3356-01**
+The end-to-end reporting pipeline is `payroll_run.py`. See [PAYROLL-RUNBOOK.md](PAYROLL-RUNBOOK.md) for its workflow, secrets, schedule, and current limitations. ADP integration is on hold.
+
+Allocate each store's Gateway tips among eligible crew and Crew Leaders using
+verified decimal hours, then prepare dated store and consolidated workbooks. Store **3356-01**
 is an example; the same calculation applies separately to every store.
 
 ## Setup

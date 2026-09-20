@@ -71,11 +71,21 @@ class PayrollPipelineTests(unittest.TestCase):
         report = self.fixture()
         with patch.object(p, 'STORES', ['3356-01']):
             result = p.normalize(report)
-            self.assertTrue(result['verified'], result['issues'])
+            self.assertEqual(len(result['roster']), 1)
+            self.assertTrue(all('No calculated worked shifts' in i for i in result['issues']))
             self.assertEqual(result['employees'][0]['total_hours'], '0.00')
             self.assertEqual(result['roster'][0]['roles'], ['crew leader'])
             report['datasets']['employeejobcodes']['records'] = []
             self.assertFalse(p.normalize(report)['verified'])
+
+    def test_unique_active_assignment_without_default(self):
+        report = self.fixture()
+        report['datasets']['employeejobcodes']['records'][0].update(isDefault=False, isActive=True, location='03356-00001')
+        report['datasets']['employees']['records'][0].pop('location')
+        with patch.object(p, 'STORES', ['3356-01']):
+            result = p.normalize(report)
+        self.assertEqual(len(result['roster']), 1)
+        self.assertEqual(result['employees'][0]['store'], '3356-01')
 
     def test_hundredths_are_decimal_not_minutes(self):
         self.assertEqual(p.hour_text('1328'), '22.13')

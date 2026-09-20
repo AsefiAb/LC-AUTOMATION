@@ -76,6 +76,13 @@ def normalize(report):
     checks = summary['checks']
     issues = [f'TCP check requires correction: {key} ({len(checks[key]) if isinstance(checks[key], list) else checks[key]})'
               for key in ('hours_only_ids', 'work_only_ids', 'open_punches', 'zero_hour_closed_shifts') if checks[key]]
+    first_date = date.fromisoformat(report['period']['startDate'])
+    last_date = date.fromisoformat(report['period']['stopDate'])
+    worked_dates = {s['time_in'][:10] for s in summary['segments'] if s['category'] == 'Worked'}
+    missing_dates = [(first_date + timedelta(days=i)).isoformat() for i in range((last_date - first_date).days + 1)
+                     if (first_date + timedelta(days=i)).isoformat() not in worked_dates]
+    if missing_dates:
+        issues.append('No calculated worked shifts on dates: ' + ', '.join(missing_dates) + '; historical/archive data or closure verification required')
     datasets = report['datasets']
     if not datasets.get('employeejobcodes', {}).get('complete'):
         raise ValueError('Complete TCP employee job assignments are required')
@@ -114,12 +121,34 @@ def normalize(report):
             for a in defaults:
                 job = jobs.get(str(a['jobCodeId']), {})
                 titles |= roles((job.get('description') or a.get('description') or '').split(' - ')[0])
+            # Most employees have no default flag. A single distinct active
+            # operational title is unambiguous even across multiple stores.
+            if not titles:
+                assigned_titles = set()
+                for a in assignments[eid]:
+                    if not a.get('isActive'):
+                        continue
+                    description = (jobs.get(str(a['jobCodeId']), {}).get('description') or a.get('description') or '').split(' - ')[0]
+                    try:
+                        assigned_titles |= roles(description)
+                    except ValueError:
+                        continue  # Sick/bonus/tipping codes are not staff titles.
+                if len(assigned_titles) == 1:
+                    titles = assigned_titles
+                elif len(assigned_titles) > 1:
+                    raise ValueError('conflicting active job titles without a default')
             for row in worked:
                 titles |= roles(row['roles'])
             if not titles:
                 raise ValueError('no verified default or worked job title')
             if not worked:
                 home = store_label(person.get('location'))
+                if home not in STORES:
+                    assigned_stores = {store_label(a.get('location') or jobs.get(str(a['jobCodeId']), {}).get('locationName'))
+                                       for a in assignments[eid] if a.get('isActive')}
+                    assigned_stores.discard('Unmapped')
+                    if len(assigned_stores) == 1:
+                        home = assigned_stores.pop()
                 worked = [{'store': home, 'regular_minutes': 0, 'ot1_minutes': 0, 'ot2_minutes': 0}]
             if any(row['store'] not in STORES for row in worked):
                 raise ValueError('store could not be mapped')
