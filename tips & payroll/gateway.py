@@ -101,14 +101,16 @@ async def collect(dates):
                         await dropdown.click()
                         # Read the checkbox labels/state, not fixed screen coordinates.
                         target = f'{index:05d}'
-                        await frame.get_by_role('checkbox').first.wait_for(state='visible')
+                        await frame.get_by_role('menuitemcheckbox').first.wait_for(state='visible')
                         for number in range(1, count + 1):
                             label = f'{number:05d}'
-                            option = frame.get_by_role('checkbox', name=re.compile(r'\b' + label + r'\b'))
+                            option = frame.get_by_role('menuitemcheckbox', name=label, exact=True)
                             if await option.count() != 1:
                                 raise RuntimeError('Gateway store checkbox labels are ambiguous or missing')
-                            await option.set_checked(label == target)
-                            if await option.is_checked() != (label == target):
+                            desired = 'true' if label == target else 'false'
+                            if await option.get_attribute('aria-checked') != desired:
+                                await option.click()
+                            if await option.get_attribute('aria-checked') != desired:
                                 raise RuntimeError('Gateway store checkbox did not retain selection')
                         await dropdown.press('Escape')
                         selected = set(re.findall(r'\b\d{5}\b', await dropdown.input_value()))
@@ -147,7 +149,7 @@ async def collect(dates):
                         for report_frame in page.frames:
                             if 'paginated-reports.powerbi.com' in report_frame.url:
                                 metadata['report_controls'] += await report_frame.locator('input').evaluate_all('els=>els.slice(0,100).map(e=>({id:e.id,type:e.type,label:e.getAttribute("aria-label"),visible:!!(e.offsetWidth||e.offsetHeight)}))')
-                                metadata['checkboxes'] = await report_frame.get_by_role('checkbox').evaluate_all('els=>els.map(e=>({html:e.outerHTML.slice(0,2500)}))')
+                                metadata['checkboxes'] = await report_frame.get_by_role('menuitemcheckbox').evaluate_all('els=>els.map(e=>({text:e.textContent,checked:e.getAttribute("aria-checked")}))')
                                 metadata['store_options'] = await report_frame.get_by_text('00001', exact=True).evaluate_all('els=>els.map(e=>({html:e.parentElement.outerHTML.slice(0,8000)}))')
                         (folder / (region + '.json')).write_text(json.dumps(metadata, indent=2), encoding='utf-8')
                     except Exception:
