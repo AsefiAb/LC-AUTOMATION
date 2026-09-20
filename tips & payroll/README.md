@@ -254,8 +254,10 @@ must use this prepared message before its send/import stages.
 
 The biweekly workflow and delivery orchestration are implemented, but scheduled
 delivery remains disabled pending reconciliation. The September 20 live check
-confirmed Gmail authentication and all three Gateway logins. Gateway's custom
-store selector is still being adapted; live tip totals have not been verified.
+confirmed Gmail authentication and extracted Gateway tips for all 18 stores
+for September 6-19 inclusive. The private artifact contains `gateway-input.json`.
+[Live source check](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35539807831)
+completed Gateway extraction; the overall run correctly failed the TCP checks.
 TCP returned three open punches, 148 closed zero-hour shifts, missing calculated
 work on September 6, 7 and 14, and no verified job title for GEID 6584508 in the
 September 6-19 diagnostic period. The private artifact includes a corrections
