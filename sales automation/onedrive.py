@@ -62,7 +62,8 @@ class OneDrive:
             url = urlparse(download)
             if url.scheme != 'https' or not any((url.hostname or '').endswith(suffix)
                     for suffix in ('.1drv.com', '.sharepoint.com', '.live.com', '.onedrive.com')):
-                raise DriveError('Unexpected OneDrive download host.')
+                # Only the hostname is safe to log; the full download URL is signed.
+                raise DriveError('Unexpected OneDrive download host: ' + (url.hostname or '(missing)'))
             response = requests.get(download, timeout=90, allow_redirects=False)
             if response.status_code in (301, 302, 303, 307, 308):
                 download = response.headers.get('Location', '')
