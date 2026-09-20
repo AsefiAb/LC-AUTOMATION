@@ -35,9 +35,9 @@ on a laptop does not necessarily authorize a fresh GitHub runner.
 
 [Microsoft workbook read check](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35539325854).
 The actual Arizona and Texas books have verified date/store destinations for
-September 19. Colorado's SALES and TRANS sheets both label Constitution as
-`3356-2`, duplicating Galley Rd. The updater blocks that ambiguous mapping;
-the correct store label must be confirmed and corrected before delivery.
+September 19. The user confirmed Constitution is `3356-03` and corrected the
+TRANS header. The remaining SALES!G4 header was corrected to `3356-3` in Excel
+Online on September 20, with the saved value verified. No sales figures changed.
 
 For OneDrive, register a public-client Microsoft application for the account
 that can edit the three files, enable public-client flows, and grant delegated
