@@ -1,0 +1,11 @@
+{
+  "period": {"start_date": "2026-09-08", "end_date": "2026-09-21"},
+  "verified": false,
+  "issues": ["Example only: verify current ADP exports and GEID-to-file-number mappings."],
+  "templates": {
+    "CO": {"file": "CO-current.csv", "company_code": "VERIFY_FROM_ADP", "batch_id": "VERIFY_FROM_ADP", "sha256": "SHA256_OF_VERIFIED_CSV"},
+    "AZ": {"file": "AZ-current.csv", "company_code": "VERIFY_FROM_ADP", "batch_id": "VERIFY_FROM_ADP", "sha256": "SHA256_OF_VERIFIED_CSV"},
+    "TX": {"file": "TX-current.csv", "company_code": "VERIFY_FROM_ADP", "batch_id": "VERIFY_FROM_ADP", "sha256": "SHA256_OF_VERIFIED_CSV"}
+  },
+  "employees": []
+}

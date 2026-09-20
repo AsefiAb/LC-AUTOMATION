@@ -1,6 +1,6 @@
 # Tips and payroll
 
-The end-to-end reporting pipeline is `payroll_run.py`. See [PAYROLL-RUNBOOK.md](PAYROLL-RUNBOOK.md) for its workflow, secrets, schedule, and current limitations. ADP integration is on hold.
+The reporting pipeline is `payroll_run.py`. See [PAYROLL-RUNBOOK.md](PAYROLL-RUNBOOK.md) for its workflow, secrets, schedule, and current limitations. [Regional ADP CSV preparation](ADP-EXPORT.md) is implemented in `adp_export.py`; the live ADP connection and automated imports remain unfinished.
 
 Allocate each store's Gateway tips among eligible crew and Crew Leaders using
 verified decimal hours, then prepare dated store and consolidated workbooks. Store **3356-01**

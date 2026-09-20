@@ -5,6 +5,10 @@ and TCP calculated hours. The pipeline writes 18 store workbooks, a combined
 workbook with All employees and Managers sheets, and Alicia's email with both
 tables and all workbooks attached. It does not access or import into ADP.
 
+The separate [ADP CSV builder](ADP-EXPORT.md) prepares the original regional
+import format once fresh exports, verified employee mappings and final payroll
+inputs are available. It never submits an import or sends an email.
+
 ## Secret names in LC-AUTOMATION
 
 | Source | Secrets |
