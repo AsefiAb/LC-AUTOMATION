@@ -2,11 +2,18 @@
 import asyncio
 import os
 import re
+import json
+from pathlib import Path
+from urllib.parse import urlsplit
 from datetime import date
 from decimal import Decimal
 
 REGIONS = {'CO': ('3356', 7), 'AZ': ('3759', 7), 'TX': ('3910', 4)}
 LABELS = ('InStore Tips (+)', 'Prepaid InStore Tips (+)')
+
+
+class GatewayError(RuntimeError):
+    pass
 
 
 def missing_secrets():
@@ -47,6 +54,7 @@ async def collect(dates):
         try:
             async def region_report(region, franchise, count):
                 context = await browser.new_context()
+                stage = 'login'
                 try:
                     page = await context.new_page()
                     page.set_default_timeout(30000)
@@ -55,6 +63,7 @@ async def collect(dates):
                     await page.locator('input[type="password"]').first.fill(os.environ[f'{region}_GATEWAY_PASS'])
                     await page.locator('button[type="submit"], input[type="submit"], button:has-text("Login")').first.click()
                     await page.wait_for_timeout(2000)
+                    stage = 'report navigation'
                     await page.goto('https://www.lcegateway.com/Reporting', wait_until='domcontentloaded')
                     await page.get_by_text('FINANCIAL VIEW', exact=True).click()
                     await page.locator('iframe[src*="powerbi.com"]').first.wait_for()
@@ -66,8 +75,10 @@ async def collect(dates):
                         await page.wait_for_timeout(500)
                     if not frame:
                         raise RuntimeError('Gateway report frame unavailable; check login/2FA')
+                    print(f'{region}: Gateway Financial View opened', flush=True)
                     result = []
                     for index in range(1, count + 1):
+                        stage = 'date parameters'
                         if not await frame.locator('#datePicker-input4').is_visible():
                             await frame.locator('[title*="Parameters"], button:has-text("Parameters")').first.click()
                         for selector, value in (('#datePicker-input4', start), ('#datePicker-input9', stop)):
@@ -76,6 +87,7 @@ async def collect(dates):
                             if await frame.locator(selector).input_value() != value:
                                 raise RuntimeError('Gateway report date did not match')
                         dropdown = frame.locator('#LocationNumber')
+                        stage = 'store selection'
                         await dropdown.click()
                         # Read the checkbox labels/state, not fixed screen coordinates.
                         options = frame.get_by_role('checkbox')
@@ -99,6 +111,7 @@ async def collect(dates):
                         selected = set(re.findall(r'\b\d{5}\b', await dropdown.input_value()))
                         if selected != {target}:
                             raise RuntimeError('Gateway selection is not exactly one requested store')
+                        stage = 'report refresh'
                         old_report = await frame.locator('table').evaluate_all('tables => tables.filter(t => t.innerText.includes("InStore Tips (+)")).map(t => t.innerText).join("\\n")')
                         await frame.locator('button:has-text("View Report"), button:has-text("View report"), input[value="View Report"]').first.click()
                         try:
@@ -115,13 +128,30 @@ async def collect(dates):
                         if set(re.findall(r'\b\d{5}\b', await dropdown.input_value())) != {target}:
                             raise RuntimeError('Gateway store changed during refresh')
                         tables = await frame.locator('table').evaluate_all('tables => tables.map(t => [...t.rows].map(r => [...r.cells].map(c => c.innerText.trim())))')
+                        stage = 'tip parsing'
                         result.append({'store': f'{franchise}-{index:02d}', **parse_tip_rows(tables)})
                     return result
                 except Exception as exc:
-                    raise RuntimeError(f'{region}: Gateway extraction failed ({type(exc).__name__}); check credentials, verification and Financial View controls.') from None
+                    try:
+                        folder = Path(__file__).parent / 'reports' / 'gateway-diagnostics'
+                        folder.mkdir(parents=True, exist_ok=True)
+                        await page.screenshot(path=str(folder / (region + '.png')), mask=[page.locator('input')])
+                        metadata = {'stage': stage, 'host': urlsplit(page.url).hostname,
+                                    'frame_hosts': [urlsplit(f.url).hostname for f in page.frames],
+                                    'inputs': await page.locator('input:visible').evaluate_all('els=>els.map(e=>({id:e.id,type:e.type}))')}
+                        (folder / (region + '.json')).write_text(json.dumps(metadata, indent=2), encoding='utf-8')
+                    except Exception:
+                        pass
+                    detail = str(exc) if type(exc) in (RuntimeError, ValueError) else type(exc).__name__
+                    raise GatewayError(f'{region}: Gateway {stage} failed: {detail}') from None
                 finally:
                     await context.close()
-            groups = await asyncio.gather(*(region_report(region, *definition) for region, definition in REGIONS.items()))
+            groups = await asyncio.gather(*(region_report(region, *definition) for region, definition in REGIONS.items()), return_exceptions=True)
+            failures = [str(g) for g in groups if isinstance(g, GatewayError)]
+            if failures:
+                raise GatewayError('; '.join(failures))
+            if any(isinstance(g, BaseException) for g in groups):
+                raise GatewayError('Gateway browser session failed')
             return {'verified': True, 'issues': [], 'period': dates, 'stores': [r for group in groups for r in group]}
         finally:
             await browser.close()

@@ -352,6 +352,9 @@ def main():
 if __name__ == '__main__':
     try:
         raise SystemExit(main())
+    except gateway.GatewayError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1)
     except Exception as exc:
         # Arbitrary transport errors can contain URLs or credentials. Private
         # input/readiness artifacts hold business-data issues when available.
