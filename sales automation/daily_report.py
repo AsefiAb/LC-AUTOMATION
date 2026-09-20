@@ -342,11 +342,14 @@ def main():
                 drive = OneDrive()
                 for book in config['workbooks']:
                     snapshot = drive.read(book['url'])
+                    private_copy = FOLDER / 'reports' / 'onedrive-check' / (book['region'] + '.xlsx')
+                    private_copy.parent.mkdir(parents=True, exist_ok=True)
+                    private_copy.write_bytes(snapshot['content'])
                     with zipfile.ZipFile(io.BytesIO(snapshot['content'])) as archive:
                         root = etree.fromstring(archive.read('xl/workbook.xml'), etree.XMLParser(resolve_entities=False, no_network=True))
-                        names = set(root.xpath('//*[local-name()="sheet"]/@name'))
-                        if not {'SALES', 'Trans'} <= names:
-                            raise WorkbookError('Expected SALES and Trans sheets are missing')
+                        names = {name.upper() for name in root.xpath('//*[local-name()="sheet"]/@name')}
+                        if not {'SALES', 'TRANS'} <= names:
+                            issues.append(book['region'] + ': expected SALES and Trans sheets; found ' + ', '.join(sorted(names)))
                     print(book['region'] + ': existing OneDrive workbook read successfully; no changes made', flush=True)
             except (DriveError, WorkbookError) as exc:
                 issues.append(str(exc))
