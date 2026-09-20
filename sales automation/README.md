@@ -19,8 +19,9 @@ Add repository secrets in **AsefiAb/LC-AUTOMATION**, not the old repository:
 
 All six Altametrics secrets, the Gmail app password, MS_CLIENT_ID and
 MS_REFRESH_TOKEN are present as of September 20, 2026. Microsoft device sign-in
-and the live refresh-token exchange succeeded. Presence alone does not verify
-portal extraction or workbook updates.
+and the live refresh-token exchange succeeded. The live check downloaded all
+three existing workbooks successfully without changing them. Microsoft setup
+is complete; portal extraction and workbook writes are separate checks.
 Gateway credentials belong to payroll and are never substituted here.
 
 Live check on September 20: Gmail SMTP authentication succeeded. All three
@@ -31,6 +32,12 @@ session with a human completing verification, is needed. Completing a challenge
 on a laptop does not necessarily authorize a fresh GitHub runner.
 
 [Live check](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35535705207).
+
+[Microsoft workbook read check](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35539325854).
+The actual Arizona and Texas books have verified date/store destinations for
+September 19. Colorado's SALES and TRANS sheets both label Constitution as
+`3356-2`, duplicating Galley Rd. The updater blocks that ambiguous mapping;
+the correct store label must be confirmed and corrected before delivery.
 
 For OneDrive, register a public-client Microsoft application for the account
 that can edit the three files, enable public-client flows, and grant delegated
@@ -64,8 +71,9 @@ the app must support personal Microsoft accounts. No client secret is needed.
 
 GitHub Actions -> **Daily sales report** -> Run workflow:
 
-- `preflight`: test all three Altametrics logins and extract store metrics; report
-  missing connections. No workbook uploads or email.
+- `preflight`: independently test Gmail authentication, read all three OneDrive
+  books and validate date/store destinations, then test Altametrics extraction.
+  Report missing connections and layout errors. No workbook uploads or email.
 - `preview`: read the existing OneDrive files, prepare updated copies and email
   HTML in a private artifact. No workbook uploads or email.
 - `deliver`: update the original files and send the report.

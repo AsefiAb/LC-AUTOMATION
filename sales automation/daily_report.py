@@ -22,7 +22,7 @@ import requests
 import tcp_labor
 import altametrics
 from onedrive import OneDrive, DriveError
-from workbooks import update, WorkbookError
+from workbooks import update, inspect_layout, WorkbookError
 
 FOLDER = Path(__file__).resolve().parent
 
@@ -336,21 +336,18 @@ def main():
         # whether the Microsoft connection and workbook links are usable.
         if all(os.environ.get(k) for k in ('MS_CLIENT_ID', 'MS_REFRESH_TOKEN')):
             try:
-                import io
-                import zipfile
-                from lxml import etree
                 drive = OneDrive()
                 for book in config['workbooks']:
                     snapshot = drive.read(book['url'])
                     private_copy = FOLDER / 'reports' / 'onedrive-check' / (book['region'] + '.xlsx')
                     private_copy.parent.mkdir(parents=True, exist_ok=True)
                     private_copy.write_bytes(snapshot['content'])
-                    with zipfile.ZipFile(io.BytesIO(snapshot['content'])) as archive:
-                        root = etree.fromstring(archive.read('xl/workbook.xml'), etree.XMLParser(resolve_entities=False, no_network=True))
-                        names = {name.upper() for name in root.xpath('//*[local-name()="sheet"]/@name')}
-                        if not {'SALES', 'TRANS'} <= names:
-                            issues.append(book['region'] + ': expected SALES and Trans sheets; found ' + ', '.join(sorted(names)))
                     print(book['region'] + ': existing OneDrive workbook read successfully; no changes made', flush=True)
+                    try:
+                        stores = [s['store'] for s in config['stores'] if s['region'] == book['region']]
+                        inspect_layout(snapshot['content'], stores, day)
+                    except WorkbookError as exc:
+                        issues.append(book['region'] + ': ' + str(exc))
             except (DriveError, WorkbookError) as exc:
                 issues.append(str(exc))
             except Exception as exc:

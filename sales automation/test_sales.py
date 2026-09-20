@@ -106,6 +106,13 @@ class LaborTests(unittest.TestCase):
 class WorkbookTests(unittest.TestCase):
     rows = [{'store': '3356-01', 'sales': '1234.56', 'transactions': 200}]
 
+    def test_unpadded_store_ids_are_verified_without_accepting_wrong_store(self):
+        original = sample_workbook(header='3356-1')
+        self.assertEqual(workbooks.inspect_layout(original, ['3356-01'], '2026-09-16')['SALES'],
+                         [('3356-01', 'E12')])
+        self.assertFalse(workbooks.header_matches('3356-2', '3356-03', 3))
+        self.assertFalse(workbooks.header_matches('3910-1', '3356-01', 1))
+
     def test_updates_exact_date_and_preserves_parts_formulas_styles(self):
         original = sample_workbook()
         updated, changes = workbooks.update(original, self.rows, '2026-09-16')

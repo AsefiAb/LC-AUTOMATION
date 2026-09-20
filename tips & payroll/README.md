@@ -252,17 +252,21 @@ must use this prepared message before its send/import stages.
 - Keep durable period/company import receipts and email delivery records so
   retries do not duplicate batches or resend completed deliveries.
 
-These are recorded requirements, not an activated schedule. The current Action
-only performs manual TCP inspection. Gateway orchestration, ADP credentials and
-access, Google Workspace sender authorization, exports, and live scheduling
-still need integration and end-to-end validation. Do not mark a period completed
-or send a successful-payroll report when inputs or imports are incomplete.
+The biweekly workflow and delivery orchestration are implemented, but scheduled
+delivery remains disabled pending reconciliation. The September 20 live check
+confirmed Gmail authentication and all three Gateway logins. Gateway's custom
+store selector is still being adapted; live tip totals have not been verified.
+TCP returned three open punches, 148 closed zero-hour shifts, missing calculated
+work on September 6, 7 and 14, and no verified job title for GEID 6584508 in the
+September 6-19 diagnostic period. The private artifact includes a corrections
+CSV. Do not send a completed payroll report while these checks fail. ADP work
+is on hold at the user's request.
 
 As of September 17, GitHub contains `CAAZ_GMAIL_APP_PASS`, `ADP_CERTIFICATE` and
 `ADP_PRIVATE_KEY`. `ADP_CLIENT_ID` and `ADP_CLIENT_SECRET` are still missing.
-Having the certificate/password secrets does not establish successful ADP or
-payroll email connectivity. The combined Excel/email summary is implemented and
-tested, but matched live-period store workbooks are not available yet.
+ADP connectivity is unverified. Gmail authentication and the combined Excel/email
+summary are verified separately; a reconciled live-period payroll delivery has
+not yet been performed.
 
 ## ADP permissions to configure
 

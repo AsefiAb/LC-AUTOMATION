@@ -56,6 +56,9 @@ def is_date(value, target, date1904=False):
 
 def header_matches(value, store, index):
     text = str(value).strip().lower()
+    match = re.fullmatch(r'0*(\d+)-0*(\d+)', text)
+    if match:
+        return tuple(map(int, match.groups())) == tuple(map(int, store.split('-')))
     return text in {str(index), f'store {index}', f'store #{index}', store,
                     f'0{store.split("-")[0]}-{index:05d}', f'#{index}'}
 
@@ -82,12 +85,7 @@ def plan_sheet(root, strings, stores, target, date1904):
             for store, col in zip(stores, columns)]
 
 
-def update(content, region_rows, report_date):
-    target = date.fromisoformat(report_date)
-    values = {row['store']: row for row in region_rows}
-    stores = sorted(values)
-    if len(values) != len(region_rows) or not stores:
-        raise WorkbookError('Duplicate or empty store data.')
+def load_workbook(content):
     source = zipfile.ZipFile(io.BytesIO(content))
     if sum(info.file_size for info in source.infolist()) > 100_000_000:
         raise WorkbookError('Workbook expands beyond the supported size.')
@@ -110,6 +108,27 @@ def update(content, region_rows, report_date):
             sheets[name] = (path, xml(source.read(path)))
     if set(sheets) != {'SALES', 'TRANS'}:
         raise WorkbookError('Workbook must contain SALES and Trans worksheets.')
+    return source, workbook, sheets, strings, date1904
+
+
+def inspect_layout(content, stores, report_date):
+    """Validate date/store destinations without changing any workbook cells."""
+    source, _, sheets, strings, date1904 = load_workbook(content)
+    try:
+        return {name: [(store, address) for store, address, _ in
+                       plan_sheet(root, strings, sorted(stores), date.fromisoformat(report_date), date1904)]
+                for name, (_, root) in sheets.items()}
+    finally:
+        source.close()
+
+
+def update(content, region_rows, report_date):
+    target = date.fromisoformat(report_date)
+    values = {row['store']: row for row in region_rows}
+    stores = sorted(values)
+    if len(values) != len(region_rows) or not stores:
+        raise WorkbookError('Duplicate or empty store data.')
+    source, workbook, sheets, strings, date1904 = load_workbook(content)
     changes, plans = [], []
     # Validate both sheets entirely before changing either.
     for name, (path, root) in sheets.items():
