@@ -136,6 +136,13 @@ re-enter or change the punches. The supplied September 1-14 PDF provides
 independent evidence of nonzero hours on that date. Review the open punches and
 missing job assignment separately; use the original PDF/API segment IDs when
 raising the calculated-hours issue with TCP support.
+The September 20 read-only Manager review confirmed the same shift's nonzero
+regular/overtime hours in the live UI. A fresh API request aligned to September
+8-21 reproduced its zero-hour result, ruling out the earlier date-range mismatch
+for that sample. All three flagged prior-day open punches remain Clocked In;
+Maximo's Jobs section lists only Sick, including inactive assignments. No source
+records were changed. Private review notes and an unsent TCP support draft are
+under `reports/tcp-browser-review-2026-09-20/`.
 
 The sample ADP CSV is a formatting reference only. Do not assume its company
 code, batch ID, employee roster, rates, or existing values are the actual target
