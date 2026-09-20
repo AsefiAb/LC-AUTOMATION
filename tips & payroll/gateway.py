@@ -1,4 +1,8 @@
-"""Gateway financial report tips; regional credentials never overlap Altametrics."""
+"""Gateway Financial View tip collection ported from AsefiAb/tips-yolo.
+
+Keep that repository's two tip fields and per-store report totals. The payroll
+adapter additionally rejects missing/duplicate data and verifies dates/stores.
+"""
 import asyncio
 import os
 import re
@@ -10,6 +14,8 @@ from decimal import Decimal
 
 REGIONS = {'CO': ('3356', 7), 'AZ': ('3759', 7), 'TX': ('3910', 4)}
 LABELS = ('InStore Tips (+)', 'Prepaid InStore Tips (+)')
+REFERENCE_REPOSITORY = 'https://github.com/AsefiAb/tips-yolo'
+REFERENCE_REVISION = 'f28a2698e41dee97df2e673032e34fe06450983d'
 
 
 class GatewayError(RuntimeError):
@@ -164,7 +170,12 @@ async def collect(dates):
                 raise GatewayError('; '.join(failures))
             if any(isinstance(g, BaseException) for g in groups):
                 raise GatewayError('Gateway browser session failed')
-            return {'verified': True, 'issues': [], 'period': dates, 'stores': [r for group in groups for r in group]}
+            return {'verified': True, 'issues': [], 'period': dates,
+                    'source': {'system': 'LCE Gateway', 'report': 'Financial View',
+                               'reference_repository': REFERENCE_REPOSITORY,
+                               'reference_revision': REFERENCE_REVISION,
+                               'tip_fields': list(LABELS)},
+                    'stores': [r for group in groups for r in group]}
         finally:
             await browser.close()
 

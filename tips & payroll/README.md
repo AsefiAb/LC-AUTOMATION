@@ -6,6 +6,17 @@ Allocate each store's Gateway tips among eligible crew and Crew Leaders using
 verified decimal hours, then prepare dated store and consolidated workbooks. Store **3356-01**
 is an example; the same calculation applies separately to every store.
 
+The tip-collection reference is [AsefiAb/tips-yolo](https://github.com/AsefiAb/tips-yolo).
+`gateway.py` ports its Gateway **Financial View** method: read each store's
+**InStore Tips (+)** and **Prepaid InStore Tips (+)** totals and add them together.
+The reviewed source is `tips_bot.py` at revision
+`f28a2698e41dee97df2e673032e34fe06450983d`. Its 7 Colorado, 7 Arizona, and 4 Texas
+stores match this pipeline. Each new Gateway audit records that reference and
+both source fields. TCP supplies employee hours and job titles; Gateway supplies
+the tip amounts. The payroll adapter uses the requested pay-period dates and
+stops on incomplete data. It does not substitute an old repository artifact with
+different dates or run the original repository's separate Altametrics code.
+
 ## Setup
 
 Copy `.env.example` to `.env` in this folder and enter `TCP_CLIENT_ID`,
