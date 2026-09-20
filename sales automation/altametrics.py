@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from altametrics_session import secret_name, validate_session, REGIONS, alt_host
 
 URL = 'https://aplogin.altametrics.com/ers/aplogin/LITTLE_CAESAR.html'
 ACCOUNTS = {'CO': ('COLORADO_USERNAME', 'COLORADO_PASSWORD'),
@@ -21,7 +22,8 @@ class AltametricsError(RuntimeError):
 
 
 def missing_secrets():
-    return [key for pair in ACCOUNTS.values() for key in pair if not os.environ.get(key)]
+    return [key for region, pair in ACCOUNTS.items() if not os.environ.get(secret_name(region))
+            for key in pair if not os.environ.get(key)]
 
 
 def number(value, percent=False):
@@ -60,13 +62,34 @@ def parse_tables(tables):
 
 
 async def guard(page):
-    for frame in page.frames:
-        if re.search(r'(?:recaptcha|hcaptcha)', frame.url, re.I):
-            if await page.locator('iframe[src*="captcha"]:visible').count():
-                raise RuntimeError('Altametrics requires interactive verification')
     text = (await page.locator('body').inner_text()).lower()
     if any(s in text for s in ('password expired', 'new password required', 'security check', 'not a robot', 'verify you are human')):
         raise RuntimeError('Altametrics requires an interactive login or password update')
+    for frame in page.frames:
+        if re.search(r'(?:recaptcha|hcaptcha)', frame.url, re.I):
+            element = await frame.frame_element()
+            if not await element.is_visible():
+                continue
+            # An attribution badge alone is not a verification challenge.
+            if await element.evaluate("el => !!el.closest('.grecaptcha-badge')"):
+                continue
+            anchor = frame.locator('#recaptcha-anchor')
+            if await anchor.count() == 1 and await anchor.get_attribute('aria-checked') == 'true':
+                continue
+            raise RuntimeError('Altametrics requires interactive verification')
+
+
+async def verify_account_region(page, region):
+    parsed = urlsplit(page.url)
+    if parsed.scheme != 'https' or not alt_host(parsed.hostname) or 'ers_webApp' not in parsed.path:
+        raise RuntimeError('Altametrics session is not on its authenticated dashboard')
+    await guard(page)
+    field = page.locator('#FILTER_STORE_GO').locator('xpath=ancestor::form[1]').locator('input.storeSelectorDrop:visible')
+    if await field.count() != 1:
+        raise RuntimeError('Open the Altametrics dashboard store selector to verify the account')
+    selected = set(re.findall(r'(\d{4,5})-\d{2,5}', await field.input_value()))
+    if not selected or {str(int(s)) for s in selected} != {REGIONS[region]}:
+        raise RuntimeError('Altametrics account does not match the requested region')
 
 
 async def settle(page):
@@ -87,7 +110,15 @@ async def fill_first(page, selectors, value):
     raise RuntimeError('Required Altametrics login field was not found')
 
 
-async def login(page, region):
+async def login(page, region, session=None):
+    if session:
+        try:
+            await page.goto(session['entry_url'], wait_until='domcontentloaded')
+            await settle(page)
+            await verify_account_region(page, region)
+        except RuntimeError:
+            raise RuntimeError(f'{region}: saved session needs interactive reconnection') from None
+        return
     user_key, pass_key = ACCOUNTS[region]
     await page.goto(URL, wait_until='domcontentloaded')
     await page.locator('input[type="password"]:visible').first.wait_for()
@@ -99,6 +130,7 @@ async def login(page, region):
         await page.wait_for_timeout(8000)
         await settle(page)
         if 'ers_webApp' in page.url:
+            await verify_account_region(page, region)
             return
         if '/aim/login/' not in page.url and 'AuthenticationController' not in page.url:
             break
@@ -166,12 +198,17 @@ async def collect(day, config):
         browser = await p.chromium.launch(headless=True)
         try:
             async def region_report(region):
-                context = await browser.new_context()
+                session_value = os.environ.get(secret_name(region))
+                try:
+                    session = validate_session(session_value, region) if session_value else None
+                except ValueError:
+                    raise AltametricsError(f'{region}: invalid saved session; reconnect this region') from None
+                context = await browser.new_context(**({'storage_state': session['state']} if session else {}))
                 stage = 'login'
                 try:
                     page = await context.new_page()
                     page.set_default_timeout(30000)
-                    await login(page, region)
+                    await login(page, region, session)
                     print(f'{region}: Altametrics login confirmed', flush=True)
                     rows = []
                     for store in (s['store'] for s in config['stores'] if s['region'] == region):

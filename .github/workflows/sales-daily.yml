@@ -59,6 +59,9 @@ jobs:
           AZ_PASSWORD: ${{ secrets.AZ_PASSWORD }}
           TX_USERNAME: ${{ secrets.TX_USERNAME }}
           TX_PASSWORD: ${{ secrets.TX_PASSWORD }}
+          CO_ALTAMETRICS_SESSION: ${{ secrets.CO_ALTAMETRICS_SESSION }}
+          AZ_ALTAMETRICS_SESSION: ${{ secrets.AZ_ALTAMETRICS_SESSION }}
+          TX_ALTAMETRICS_SESSION: ${{ secrets.TX_ALTAMETRICS_SESSION }}
           REPORT_DATE: ${{ inputs.report_date }}
           MODE: ${{ inputs.mode || 'deliver' }}
           TCP_CLIENT_ID: ${{ secrets.TCP_CLIENT_ID }}

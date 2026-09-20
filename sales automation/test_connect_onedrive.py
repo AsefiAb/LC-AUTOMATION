@@ -12,6 +12,7 @@ class SecretUploadTests(unittest.TestCase):
             self.skipTest('Optional local setup dependency not installed')
         private = PrivateKey.generate()
         writer = GitHubSecrets.__new__(GitHubSecrets)
+        writer.allowed_names = {'MS_CLIENT_ID', 'MS_REFRESH_TOKEN'}
         writer.box = SealedBox(private.public_key)
         writer.key_id = 'test-key'
         writer.headers = {'Authorization': 'Bearer test'}

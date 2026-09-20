@@ -33,6 +33,35 @@ on a laptop does not necessarily authorize a fresh GitHub runner.
 
 [Live check](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35535705207).
 
+### Connect an existing Altametrics login
+
+The local helper opens a clean browser for the account owner to sign in and
+complete verification. It checks the selected region, tests reuse in a second
+browser context, and encrypts the Altametrics session directly into this private
+repository's GitHub Secrets. It saves no session file and sends no report.
+
+```powershell
+python -m pip install -r 'sales automation/requirements.txt' -r 'sales automation/requirements-setup.txt'
+python -m playwright install chromium
+python 'sales automation/connect_altametrics.py' --region CO
+python 'sales automation/connect_altametrics.py' --region AZ
+python 'sales automation/connect_altametrics.py' --region TX
+```
+
+Run each command separately and finish that region's login. These create
+`CO_ALTAMETRICS_SESSION`, `AZ_ALTAMETRICS_SESSION`, and `TX_ALTAMETRICS_SESSION`.
+The reporting job uses a saved session when present; otherwise it uses the
+existing regional username/password. An expired or rejected saved session stops
+the job and needs the same helper to reconnect. It does not fall back to repeated
+password attempts or dismiss security checks.
+
+Local sign-in success does **not** establish that GitHub runners can use the
+session. Run `preflight` in GitHub Actions after connecting all three accounts.
+Only a successful check of all 18 stores establishes that connection for that
+run. Session expiration or vendor checks can require later reconnection; this
+is not a promise of permanent unattended access. Keep delivery disabled until
+source values and a full preview have been verified.
+
 [Microsoft workbook read check](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35539325854).
 The actual Arizona and Texas books have verified date/store destinations for
 September 19. The user confirmed Constitution is `3356-03` and corrected the

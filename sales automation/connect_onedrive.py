@@ -11,7 +11,11 @@ import requests
 
 class GitHubSecrets:
     """Encrypt locally and upload only to the user's private automation repo."""
-    def __init__(self):
+    def __init__(self, allowed_names=None):
+        self.allowed_names = set(allowed_names or ('MS_CLIENT_ID', 'MS_REFRESH_TOKEN'))
+        permitted = {'MS_CLIENT_ID', 'MS_REFRESH_TOKEN', 'CO_ALTAMETRICS_SESSION', 'AZ_ALTAMETRICS_SESSION', 'TX_ALTAMETRICS_SESSION'}
+        if not self.allowed_names <= permitted:
+            raise RuntimeError('Unsupported connection secret')
         from nacl.public import PublicKey, SealedBox
         from nacl.encoding import Base64Encoder
         credential = subprocess.run(['git', 'credential', 'fill'],
@@ -33,8 +37,8 @@ class GitHubSecrets:
         self.box = SealedBox(PublicKey(key['key'], Base64Encoder))
 
     def save(self, name, value):
-        if name not in ('MS_CLIENT_ID', 'MS_REFRESH_TOKEN'):
-            raise RuntimeError('Only the two Microsoft connection secrets are supported')
+        if name not in self.allowed_names:
+            raise RuntimeError('This helper cannot save that connection secret')
         encrypted = base64.b64encode(self.box.encrypt(value.encode())).decode()
         response = requests.put(self.url + '/actions/secrets/' + name, headers=self.headers,
             json={'key_id': self.key_id, 'encrypted_value': encrypted}, timeout=30)
