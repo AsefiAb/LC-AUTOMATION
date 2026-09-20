@@ -80,6 +80,12 @@ async def collect(dates):
                     if not frame:
                         raise RuntimeError('Gateway report frame unavailable; check login/2FA')
                     print(f'{region}: Gateway Financial View opened', flush=True)
+                    # The Power BI frame exists before its parameter controls.
+                    # Wait for initial rendering before deciding to toggle the panel.
+                    try:
+                        await frame.locator('#datePicker-input4').wait_for(state='visible', timeout=30000)
+                    except Exception:
+                        pass
                     result = []
                     for index in range(1, count + 1):
                         stage = 'date parameters'
@@ -144,6 +150,10 @@ async def collect(dates):
                                     'frame_hosts': [urlsplit(f.url).hostname for f in page.frames],
                                     'report_link_labels': await page.locator('a').all_text_contents(),
                                     'inputs': await page.locator('input:visible').evaluate_all('els=>els.map(e=>({id:e.id,type:e.type}))')}
+                        metadata['report_controls'] = []
+                        for report_frame in page.frames:
+                            if 'paginated-reports.powerbi.com' in report_frame.url:
+                                metadata['report_controls'] += await report_frame.locator('input').evaluate_all('els=>els.slice(0,100).map(e=>({id:e.id,type:e.type,label:e.getAttribute("aria-label"),visible:!!(e.offsetWidth||e.offsetHeight)}))')
                         (folder / (region + '.json')).write_text(json.dumps(metadata, indent=2), encoding='utf-8')
                     except Exception:
                         pass

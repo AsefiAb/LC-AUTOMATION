@@ -88,7 +88,9 @@ staff, and 438 employee/store rows. Delivery was correctly blocked by:
 - Three open punches and 148 closed shifts with zero calculated hours.
 - No calculated worked shifts on September 6, 7, or 14.
 - GEID 6584508 (Maximo Cano, 3759-04) has no classifiable active job assignment.
-- The six Gateway secrets are missing from this repository.
+- At the time of that diagnostic run, Gateway secrets were missing. All six
+  have since been added, and live login reached the regional reporting pages.
+  Report extraction is being verified separately.
 
 The August 25–September 7 historical query returned no calculated worked shifts.
 This is unavailable data, not zero payroll. Confirm the historical hours access

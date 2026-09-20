@@ -17,8 +17,10 @@ Add repository secrets in **AsefiAb/LC-AUTOMATION**, not the old repository:
 | Existing OneDrive workbooks | `MS_CLIENT_ID`, `MS_REFRESH_TOKEN` |
 | Google Workspace sender | `CAAZ_GMAIL_APP_PASS` |
 
-The six Altametrics secrets and Gmail app password were present on September 20,
-2026. OneDrive secrets were still missing. Presence alone does not verify login.
+All six Altametrics secrets, the Gmail app password, MS_CLIENT_ID and
+MS_REFRESH_TOKEN are present as of September 20, 2026. Microsoft device sign-in
+and the live refresh-token exchange succeeded. Presence alone does not verify
+portal extraction or workbook updates.
 Gateway credentials belong to payroll and are never substituted here.
 
 Live check on September 20: Gmail SMTP authentication succeeded. All three

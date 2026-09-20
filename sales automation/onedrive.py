@@ -60,8 +60,8 @@ class OneDrive:
         download = item['@microsoft.graph.downloadUrl']
         for attempt in range(5):
             url = urlparse(download)
-            if url.scheme != 'https' or not any((url.hostname or '').endswith(suffix)
-                    for suffix in ('.1drv.com', '.sharepoint.com', '.live.com', '.onedrive.com')):
+            if url.scheme != 'https' or not (url.hostname == 'my.microsoftpersonalcontent.com' or any((url.hostname or '').endswith(suffix)
+                    for suffix in ('.1drv.com', '.sharepoint.com', '.live.com', '.onedrive.com'))):
                 # Only the hostname is safe to log; the full download URL is signed.
                 raise DriveError('Unexpected OneDrive download host: ' + (url.hostname or '(missing)'))
             response = requests.get(download, timeout=90, allow_redirects=False)
