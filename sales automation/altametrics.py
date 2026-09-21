@@ -151,8 +151,17 @@ async def date_input(page):
 async def select_date(page, day):
     target = date.fromisoformat(day).strftime('%m/%d/%Y')
     field = await date_input(page)
-    await field.fill(target)
+    await guard(page)
+    # The dashboard date widget needs keyboard events to update its submitted
+    # value. Match normal typing; fill() alone can leave its prior date in use.
+    await field.click()
+    await field.press('Escape')
+    await guard(page)
+    await field.press('ControlOrMeta+A')
+    await field.press_sequentially(target, delay=50)
     await field.press('Tab')
+    if await field.input_value() != target:
+        raise RuntimeError('Altametrics date widget did not accept the requested date')
     # Locate report GO in the date's form, excluding the store-selector GO.
     form = field.locator('xpath=ancestor::form[1]')
     scope = form if await form.count() else page
@@ -169,8 +178,9 @@ async def select_date(page, day):
         raise RuntimeError('Altametrics report GO button is ambiguous or absent')
     await candidates[0].click()
     await settle(page)
-    if await (await date_input(page)).input_value() != target:
-        raise RuntimeError('Altametrics did not retain the requested date')
+    observed = await (await date_input(page)).input_value()
+    if observed != target:
+        raise RuntimeError(f'Altametrics did not retain the requested date: expected {target}, received {observed}')
 
 
 async def select_store(page, store):
