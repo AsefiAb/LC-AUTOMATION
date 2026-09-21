@@ -36,8 +36,8 @@ on a laptop does not necessarily authorize a fresh GitHub runner.
 ### Connect an existing Altametrics login
 
 The local helper opens a clean browser for the account owner to sign in and
-complete verification. It checks the selected region, tests reuse in a second
-browser context, and encrypts the Altametrics session directly into this private
+complete verification. It checks the selected region, closes the sign-in browser,
+tests reuse in a fresh headless browser, and encrypts the latest verified session into this private
 repository's GitHub Secrets. It saves no session file and sends no report.
 
 ```powershell
@@ -61,6 +61,12 @@ Only a successful check of all 18 stores establishes that connection for that
 run. Session expiration or vendor checks can require later reconnection; this
 is not a promise of permanent unattended access. Keep delivery disabled until
 source values and a full preview have been verified.
+
+The September 20 Colorado session passed the original local verification but
+GitHub returned **Session Timeout** in [the saved-session test](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35546424932).
+Gmail and all three workbook reads passed. The helper now verifies after closing
+the original browser and retains cookies updated during verification. These
+changes improve the local check; cross-host session reuse remains unverified.
 
 [Microsoft workbook read check](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35539325854).
 The actual Arizona and Texas books have verified date/store destinations for
