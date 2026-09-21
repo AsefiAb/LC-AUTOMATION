@@ -68,6 +68,30 @@ Gmail and all three workbook reads passed. The helper now verifies after closing
 the original browser and retains cookies updated during verification. These
 changes improve the local check; cross-host session reuse remains unverified.
 
+### Verified Texas local run
+
+On September 20, the [Texas local connection check](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35547882984)
+used the existing `TX_USERNAME` and `TX_PASSWORD` secrets on the owner's Windows
+computer. It verified September 19 sales, transactions, and Punched Labor % for
+all four Texas stores and saved `local-TX-2026-09-19.json` as a private artifact.
+The updated session also passed a fresh headless browser check after sign-in
+closed. No workbook writes or emails were performed.
+
+`sales-local-texas.yml` is a manually dispatched, Texas-only diagnostic job. It
+requires a Windows runner labeled `lc-sales-interactive`, running interactively
+as the owner with Python, Playwright Chromium, setup dependencies, and GitHub
+credential-manager access. The runner used for this check was ephemeral: it
+handled one job, unregistered, and stopped. It was not installed as a service or
+scheduled task. Its installation is under `%LOCALAPPDATA%/LC-Automation/sales-runner`,
+outside the OneDrive workspace. The regular daily job remains gated off.
+
+This demonstrates a working local Texas extraction, not ongoing unattended
+access. Colorado and Arizona need equivalent current validation before the
+complete 18-store daily delivery can be enabled. Human verification is still
+required whenever Altametrics requests it. The local job supplies credentials
+through its environment; it never stores plaintext credential files or uploads
+credentials in report artifacts.
+
 [Microsoft workbook read check](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35539325854).
 The actual Arizona and Texas books have verified date/store destinations for
 September 19. The user confirmed Constitution is `3356-03` and corrected the
