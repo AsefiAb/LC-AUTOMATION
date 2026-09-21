@@ -1,0 +1,39 @@
+name: Texas local sales connection check
+on:
+  workflow_dispatch:
+    inputs:
+      report_date:
+        description: Completed report date (YYYY-MM-DD)
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: local-sales-connection
+  cancel-in-progress: false
+jobs:
+  texas:
+    if: github.event.repository.private == true && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Windows, X64, lc-sales-interactive]
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Connect Texas and read its four stores
+        shell: pwsh
+        env:
+          TX_USERNAME: ${{ secrets.TX_USERNAME }}
+          TX_PASSWORD: ${{ secrets.TX_PASSWORD }}
+          REPORT_DATE: ${{ inputs.report_date }}
+        run: |
+          python 'sales automation/connect_altametrics.py' --region TX --credentials-from-env --report-date "$env:REPORT_DATE"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Keep private Texas report briefly
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: local-texas-${{ github.run_id }}
+          path: sales automation/reports/local-TX-*.json
+          retention-days: 1
+          if-no-files-found: ignore

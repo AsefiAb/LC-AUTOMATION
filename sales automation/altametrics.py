@@ -148,6 +148,20 @@ async def date_input(page):
     return matches[0]
 
 
+async def report_tables(page):
+    # DataTables renders the report header and totals footer as sibling tables.
+    # Keep each widget together, while preventing cross-report header matching.
+    return await page.locator('table').evaluate_all('''tables => {
+        const groups = [...new Set(tables.map(t => t.closest('.dataTables_wrapper') || t))];
+        return groups.map(group => {
+            const members = group.tagName === 'TABLE' ? [group] : [...group.querySelectorAll('table')];
+            return members.flatMap(t => [...t.rows])
+                .filter(r => r.getBoundingClientRect().height > 0 && getComputedStyle(r).visibility !== 'hidden')
+                .map(r => [...r.cells].map(c => c.innerText.trim()));
+        });
+    }''')
+
+
 async def select_date(page, day):
     target = date.fromisoformat(day).strftime('%m/%d/%Y')
     field = await date_input(page)
@@ -220,20 +234,10 @@ async def collect(day, config):
                     page.set_default_timeout(30000)
                     await login(page, region, session)
                     print(f'{region}: Altametrics login confirmed', flush=True)
-                    rows = []
-                    for store in (s['store'] for s in config['stores'] if s['region'] == region):
-                        stage = 'store selection'
-                        await select_store(page, store)
-                        stage = 'date selection'
-                        await select_date(page, day)
-                        selected = await page.locator('#FILTER_STORE_GO').locator('xpath=ancestor::form[1]').locator('input.storeSelectorDrop:visible').input_value()
-                        franchise, index = store.split('-')
-                        if set(re.findall(r'\d{4,5}-\d{2,5}', selected)) != {f'0{franchise}-{int(index):05d}'}:
-                            raise RuntimeError('Report date change reset the store selection')
-                        stage = 'metric parsing'
-                        tables = await page.locator('table').evaluate_all('tables => tables.map(t => [...t.rows].map(r => [...r.cells].map(c => c.innerText.trim())))')
-                        rows.append({'store': store, 'date': day, **parse_tables(tables)})
-                    return rows
+                    def set_stage(value):
+                        nonlocal stage
+                        stage = value
+                    return await read_region_report(page, region, day, config, set_stage)
                 except Exception as exc:
                     # Private diagnostic image masks inputs, including passwords.
                     # Only control metadata (never field values/page text) is saved.
@@ -276,6 +280,23 @@ async def collect(day, config):
 
 def fetch(day, config):
     return asyncio.run(collect(day, config))
+
+
+async def read_region_report(page, region, day, config, set_stage=lambda value: None):
+    rows = []
+    for store in (s['store'] for s in config['stores'] if s['region'] == region):
+        set_stage('store selection')
+        await select_store(page, store)
+        set_stage('date selection')
+        await select_date(page, day)
+        selected = await page.locator('#FILTER_STORE_GO').locator('xpath=ancestor::form[1]').locator('input.storeSelectorDrop:visible').input_value()
+        franchise, index = store.split('-')
+        if set(re.findall(r'\d{4,5}-\d{2,5}', selected)) != {f'0{franchise}-{int(index):05d}'}:
+            raise RuntimeError('Report date change reset the store selection')
+        set_stage('metric parsing')
+        rows.append({'store': store, 'date': day, **parse_tables(await report_tables(page))})
+        print(f'{store}: report date and metrics verified', flush=True)
+    return rows
 
 
 def validate(day, records, config):
