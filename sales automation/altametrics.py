@@ -57,7 +57,7 @@ def parse_tables(tables):
                 raise ValueError('Transaction count is not a whole number')
             candidates.append({'sales': f'{sales:.2f}', 'transactions': int(transactions), 'labor_pct': f'{labor:.2f}'})
     if len(candidates) != 1:
-        raise ValueError('Expected one unambiguous Actual Total row with the known dashboard columns')
+        raise ValueError(f'Expected one unambiguous Actual Total row with the known dashboard columns; found {len(candidates)}')
     return candidates[0]
 
 
@@ -246,6 +246,17 @@ async def collect(day, config):
                                 'frame_hosts': [urlsplit(f.url).hostname for f in page.frames],
                                 'inputs': await page.locator('input:visible').evaluate_all('els => els.map(e => ({id:e.id,type:e.type}))')}
                         (folder / (region + '.json')).write_text(json.dumps(meta, indent=2), encoding='utf-8')
+                        if stage == 'metric parsing':
+                            # Inspect only report headers and total rows, never
+                            # credentials, cookies, full HTML, or employee rows.
+                            layout = await page.locator('table').evaluate_all('''tables => tables.map(t => ({
+                                id: t.id, classes: t.className,
+                                visible: !!(t.getBoundingClientRect().width && t.getBoundingClientRect().height),
+                                parentClasses: t.parentElement?.className,
+                                headers: [...t.querySelectorAll('thead tr')].map(r => [...r.cells].map(c => ({text:c.textContent.trim(), rendered:c.innerText.trim()}))),
+                                totals: [...t.rows].filter(r => r.cells[0]?.textContent.trim() === 'Actual Total').map(r => [...r.cells].map(c => c.textContent.trim()))
+                            })).filter(t => t.totals.length || JSON.stringify(t.headers).includes('Product Net'))''')
+                            (folder / (region + '-report-layout.json')).write_text(json.dumps(layout, indent=2), encoding='utf-8')
                     except Exception:
                         pass
                     detail = str(exc) if type(exc) in (RuntimeError, ValueError) else type(exc).__name__
