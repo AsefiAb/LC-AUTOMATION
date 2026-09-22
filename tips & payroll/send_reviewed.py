@@ -114,9 +114,10 @@ def main():
     parser.add_argument('--start', required=True)
     parser.add_argument('--end', required=True)
     parser.add_argument('--send', action='store_true')
+    parser.add_argument('--folder', type=Path, help='Verified package directory (cloud or local)')
     args = parser.parse_args()
     dates = period_for(datetime.now(timezone.utc), args.start, args.end)
-    folder = Path(os.environ['LOCALAPPDATA']) / 'LC-Automation' / 'payroll-delivery' / (args.start + '_' + args.end)
+    folder = args.folder or (Path(os.environ['LOCALAPPDATA']) / 'LC-Automation' / 'payroll-delivery' / (args.start + '_' + args.end))
     messages = prepare_package(folder, dates)
     if args.send:
         if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('GITHUB_REPOSITORY') != 'AsefiAb/LC-AUTOMATION':

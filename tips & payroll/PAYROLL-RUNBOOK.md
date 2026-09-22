@@ -203,10 +203,18 @@ period until reviewed, avoiding a duplicate payroll email.
 
 For a reviewed native-export fallback, stage `tcp-audit.json`, `native-payroll.xml`,
 `gateway-input.json`, and the 21 reviewed Excel files in
-`%LOCALAPPDATA%/LC-Automation/payroll-delivery/START_END` on the trusted Windows
-runner. `send_reviewed.py --start START --end END` verifies the sources and every
+`%LOCALAPPDATA%/LC-Automation/payroll-delivery/START_END` locally.
+`send_reviewed.py --start START --end END` verifies the sources and every
 employee's cached Excel values without sending. The manually dispatched
 **Send reviewed regional payroll** workflow repeats those checks and sends the
-three messages using the existing GitHub Gmail secret. It requires the temporary
-`lc-payroll-delivery` runner and shares the scheduled payroll concurrency lock.
-Private source files and email previews are never committed to Git.
+three messages on a GitHub-hosted Ubuntu runner using the existing Gmail secret.
+Upload the 24-file ZIP encrypted with PyNaCl SecretBox as a private draft-release
+asset; save its random 32-byte base64 key in `PAYROLL_REVIEWED_PACKAGE_KEY`.
+Dispatch with the asset ID and SHA256 of the approved ciphertext. The workflow
+checks the digest, decrypts into temporary storage, reconciles both sources, and
+rechecks every employee and attachment before sending. It deletes the decrypted
+runner files afterward and shares the scheduled payroll concurrency lock.
+Remove the temporary draft-release asset and transfer key after confirmed delivery.
+No self-hosted runner or open browser is needed. Private source files and email
+previews are never committed to Git. This is a reviewed fallback, not a fix for
+incomplete future TCP API calculations.
