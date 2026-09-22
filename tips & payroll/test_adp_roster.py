@@ -4,7 +4,7 @@ import io
 import unittest
 
 from adp_roster import fill_region
-from report_package import store_spec
+from report_package import store_spec, issue_reconciliation
 
 
 class CurrentADPRosterTests(unittest.TestCase):
@@ -60,3 +60,18 @@ class CurrentADPRosterTests(unittest.TestCase):
     def test_tip_earnings_code_not_interchangeable(self):
         with self.assertRaises(ValueError):
             fill_region(self.summary, '3910', self.raw.replace(b'Amount,T,,0', b'Amount,TIP,,0'))
+
+    def test_issues_account_for_every_missing_hour_and_cent(self):
+        self.summary['source_rows'][-1].update(regular_hours='9.00', tips='23.58')
+        _, audit = fill_region(self.summary, '3910', self.raw, allow_missing_zero=True)
+        proof = issue_reconciliation(self.summary, '3910', audit)
+        self.assertEqual(proof, {'regular_hours':'9.00','overtime_hours':'0.00','tips':'23.58'})
+        audit['missing'][0]['tips'] = '0.00'
+        with self.assertRaises(ValueError):
+            issue_reconciliation(self.summary, '3910', audit)
+
+    def test_issue_report_cannot_hide_an_unexplained_import_difference(self):
+        _, audit = fill_region(self.summary, '3910', self.raw, allow_missing_zero=True)
+        audit['totals']['regular_hours'] = '0.00'
+        with self.assertRaisesRegex(ValueError, 'account for all'):
+            issue_reconciliation(self.summary, '3910', audit)

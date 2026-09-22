@@ -51,14 +51,14 @@ def main():
                 # Keep the requested short summary and add one replacement notice.
                 part = message.get_body(preferencelist=('plain',))
                 part.set_content(part.get_content() + '\nThese files replace the reports sent earlier for this pay period.\n')
-        expected = {code for code, detail in audit['regions'].items() if detail['ready']}
+        expected = {code for code, detail in audit['regions'].items() if detail['ready'] or code in audit['issue_reports']}
         if {m['Subject'].split()[0] for m in messages} != expected:
-            raise ValueError('Only fully reconciled regions can be emailed')
+            raise ValueError('Email requires complete payroll or a fully reconciled issues attachment')
         result = send_regions(messages, dates['end_date'], delivery_ledgers(dates['end_date'], args.revision), allow_partial=True) if messages else {}
         (args.output / 'delivery-results.json').write_text(json.dumps(result, indent=2))
     else:
         print('Preview only. No email sent and no ADP import submitted.')
-    return 0 if audit['ready'] else 2
+    return 0 if audit.get('reports_deliverable') else 2
 
 
 if __name__ == '__main__':

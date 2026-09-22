@@ -5,9 +5,9 @@ import os
 from decimal import Decimal
 from pathlib import Path
 
-from allocate_tips import allocate
+from allocate_tips import allocate, cents, decimal_text
 from adp_roster import build_imports, FILES
-from payroll_email_summary import summarize_rows, LABELS, date_label
+from payroll_email_summary import summarize_rows, LABELS, date_label, regional_people
 
 STORE_FIELDS = ['GEID', 'Employee', 'Regular hours', 'Overtime hours', 'Total hours', 'Tips']
 
@@ -99,7 +99,7 @@ def write_store_on_runner(spec, folder):
     book.save(folder / spec['filename'])
 
 
-def prepare_current(gateway, payroll, output, template_folder, settings=None, write_stores=True):
+def prepare_current(gateway, payroll, output, template_folder, settings=None, write_stores=True, send_with_issues=True):
     data = report_data(gateway, payroll)
     output.mkdir(parents=True, exist_ok=True)
     audit = build_imports(data['summary'], template_folder, output, settings)
@@ -116,15 +116,101 @@ def prepare_current(gateway, payroll, output, template_folder, settings=None, wr
         writer.writerows(audit['missing'])
     messages = []
     ready_regions = [region for region, (code, _, _) in FILES.items() if audit['regions'].get(code, {}).get('ready')]
+    issue_regions = {}
+    if send_with_issues:
+        for region, (code, _, filename) in FILES.items():
+            detail = audit['regions'].get(code)
+            if not detail or detail['ready']:
+                continue
+            proof = issue_reconciliation(data['summary'], region, detail)
+            proof['filename'] = f'{code} Payroll issues {date_label(data["period"])}.xlsx'
+            write_issues_on_runner(detail['missing'], proof, output)
+            # Keep the native filename, but explicitly disclose its incomplete
+            # status in the email and the issues workbook. Never invent ADP IDs.
+            ready_regions.append(region)
+            issue_regions[code] = proof
+    audit['reports_deliverable'] = len(ready_regions) == 3
+    audit['issue_reports'] = issue_regions
+    (output / 'adp-readiness.json').write_text(json.dumps(audit, indent=2), encoding='utf-8')
     if ready_regions:
         from regional_email import build_region_messages
-        paths = [output / FILES[region][2] for region in ready_regions] + [output / s['filename'] for s in specs]
+        paths = [(output / ('NEEDS REVIEW' if FILES[region][0] in issue_regions else '') / FILES[region][2]) for region in ready_regions]
+        paths += [output / s['filename'] for s in specs]
+        paths += [output / detail['filename'] for detail in issue_regions.values()]
         paths.append(output / 'Add to ADP or review for termination.csv')
         sources = [{'path': str(p), 'sha256': hashlib.sha256(p.read_bytes()).hexdigest()} for p in paths]
-        messages = build_region_messages(data['summary'], sources, adp_imports=True, included_regions=ready_regions)
+        messages = build_region_messages(data['summary'], sources, adp_imports=True, included_regions=ready_regions, issue_regions=issue_regions)
         for message in messages:
             (output / (message['Subject'] + '.eml')).write_bytes(message.as_bytes())
     return messages, data, audit
+
+
+def issue_reconciliation(summary, region, detail):
+    people = regional_people(summary)[region]
+    missing = detail['missing']
+    if len({p['geid'] for p in missing}) != len(missing):
+        raise ValueError('Duplicate employee in payroll issues')
+    expected = {p['geid']: p for p in people}
+    result = {}
+    for field in ('regular_hours', 'overtime_hours', 'tips'):
+        amount = 0
+        for p in missing:
+            if p['geid'] not in expected or cents(p[field], field) != cents(expected[p['geid']][field], field):
+                raise ValueError('Issue sheet does not agree with verified payroll')
+            amount += cents(p[field], field)
+        if amount + cents(detail['totals'][field], field) != sum(cents(p[field], field) for p in people):
+            raise ValueError('ADP import plus issues do not account for all regional payroll')
+        result[field] = decimal_text(amount)
+    return result
+
+
+def write_issues_on_runner(people, proof, output):
+    if os.environ.get('GITHUB_ACTIONS') != 'true':
+        raise ValueError('Issues workbook authoring uses the GitHub runner')
+    from openpyxl import Workbook, load_workbook
+    from openpyxl.styles import Font, PatternFill
+    from openpyxl.utils import get_column_letter
+    book = Workbook()
+    sheet = book.active
+    sheet.title = 'Payroll issues'
+    sheet.append(['ADP corrections needed before import'])
+    sheet.append(['These employees are included in store reports but are not matched in the ADP import.'])
+    sheet.append(['GEID', 'Employee', 'Regular hours', 'Overtime hours', 'Total hours', 'Tips', 'Issue'])
+    for p in people:
+        sheet.append([p['geid'], p['name'], float(p['regular_hours']), float(p['overtime_hours']),
+                      float(Decimal(p['regular_hours']) + Decimal(p['overtime_hours'])), float(p['tips']), p['reason']])
+    sheet.append(['TOTAL', '', float(proof['regular_hours']), float(proof['overtime_hours']),
+                  float(Decimal(proof['regular_hours']) + Decimal(proof['overtime_hours'])), float(proof['tips']), ''])
+    for row in sheet:
+        for cell in row:
+            cell.font = Font(name='Arial', size=11)
+            if isinstance(cell.value, str):
+                cell.data_type = 's'
+            elif isinstance(cell.value, (int, float)):
+                cell.number_format = '$#,##0.00' if cell.column == 6 else '0.00'
+    for i, width in enumerate([14, 30, 18, 18, 18, 18, 48], 1):
+        sheet.column_dimensions[get_column_letter(i)].width = width
+    for r in [3, sheet.max_row]:
+        for cell in sheet[r]:
+            cell.font = Font(name='Arial', size=11, bold=True)
+            cell.fill = PatternFill('solid', fgColor='FFF0CC')
+    sheet.freeze_panes = 'C4'
+    sheet.sheet_view.showGridLines = False
+    path = output / proof['filename']
+    book.save(path)
+    check = load_workbook(path, data_only=True, read_only=True)
+    try:
+        rows = list(check.active.iter_rows(min_row=4, max_row=3 + len(people), values_only=True))
+        if len(rows) != len(people):
+            raise ValueError('Incomplete issues workbook')
+        for actual, p in zip(rows, people):
+            if actual[:2] != (p['geid'], p['name']):
+                raise ValueError('Wrong employee on issues workbook')
+            for col, field in [(2, 'regular_hours'), (3, 'overtime_hours'), (5, 'tips')]:
+                if Decimal(str(actual[col])) != Decimal(p[field]):
+                    raise ValueError('Incorrect employee amount on issues workbook')
+    finally:
+        check.close()
 
 
 def verify_stores(data, folder):

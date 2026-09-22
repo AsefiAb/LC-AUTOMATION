@@ -325,8 +325,8 @@ def prepare(gateway_data, payroll, output):
         (templates / filename).write_bytes(base64.b64decode(value, validate=True))
     messages, data, audit = prepare_current(gateway_data, payroll, output, templates, settings)
     verify_stores(data, output)
-    if not audit['ready']:
-        raise ValueError('ADP employee matching is incomplete; inspect private adp-readiness.json')
+    if not audit.get('reports_deliverable'):
+        raise ValueError('Payroll cannot be fully accounted for; inspect private adp-readiness.json')
     return messages, data['summary']
 
 

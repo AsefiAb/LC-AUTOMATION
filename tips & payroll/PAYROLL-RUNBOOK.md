@@ -190,6 +190,19 @@ dependent on resolving the API discrepancy or supplying a matching native export
 
 ### Current ADP import layout (September 22 redesign)
 
+Owner update: send reports even when ADP identity matches remain unresolved.
+Attach a separate regional `Payroll issues <period>.xlsx` with every unmatched
+person's complete regular hours, overtime, total hours and tips. Verify that the
+ADP CSV plus this issues sheet equals the full verified regional payroll before
+sending. Keep the ADP filename unchanged, but explicitly state in the email that
+it is incomplete until the issues are corrected. The email and store-sheet totals
+always include the unresolved employees. Do not invent file numbers or silently
+discard pay. A successful report delivery does not imply ADP import readiness.
+TCP/Gateway calculation errors and unexplained reconciliation differences still
+block delivery. Existing regional receipts prevent duplicate TX/AZ email when CO
+is subsequently sent with an issues attachment. This update supersedes the
+identity-mismatch delivery hold described in earlier implementation notes below.
+
 The regional attachment is now the native ADP CSV, not the former regional XLSX:
 CO `EPIFND00.CSV` (FND), AZ `EPIFNC00.CSV` (FNC), TX `EPIZKT00.CSV` (ZKT).
 Keep these filenames unchanged. Preserve every control line, employee file number,

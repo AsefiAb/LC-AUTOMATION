@@ -14,7 +14,7 @@ def regional_filename(region, dates):
     return f'{REGIONS[region][0]} TIPS {date_label(dates)}.xlsx'
 
 
-def build_region_messages(summary, sources, adp_imports=False, included_regions=None):
+def build_region_messages(summary, sources, adp_imports=False, included_regions=None, issue_regions=None):
     label = date_label(summary['period'])
     grouped = regional_people(summary)
     files = {Path(s['path']).name: s for s in sources}
@@ -22,6 +22,7 @@ def build_region_messages(summary, sources, adp_imports=False, included_regions=
         raise ValueError('Duplicate payroll attachment filename')
     messages = []
     selected = set(REGIONS) if included_regions is None else set(included_regions)
+    issue_regions = issue_regions or {}
     if not selected <= set(REGIONS):
         raise ValueError('Unknown payroll email region')
     for region, (code, name) in REGIONS.items():
@@ -35,6 +36,8 @@ def build_region_messages(summary, sources, adp_imports=False, included_regions=
             f'{sid} {label}.xlsx' for sid in summary['stores'] if sid.startswith(region + '-')]
         if adp_imports and 'Add to ADP or review for termination.csv' in files:
             expected.append('Add to ADP or review for termination.csv')
+        if code in issue_regions:
+            expected.append(issue_regions[code]['filename'])
         if any(filename not in files for filename in expected):
             raise ValueError(f'Missing {code} payroll attachments')
         message = EmailMessage()
@@ -45,6 +48,13 @@ def build_region_messages(summary, sources, adp_imports=False, included_regions=
         body = (f'Hi Alicia,\n\nAttached are the {name} tips and payroll reports for {label}.\n\n'
                 f'Regular hours: {totals["regular_hours"]}\nOvertime hours: {totals["overtime_hours"]}\n'
                 f'Total hours: {totals["total_hours"]}\nTotal tips: ${totals["tips"]}\n')
+        if code in issue_regions:
+            detail = issue_regions[code]
+            body += (f'\nADP corrections needed: see the attached payroll issues sheet. '
+                     f'{FILES[region][2]} is incomplete until those employees are matched in ADP. '
+                     f'The issues sheet accounts for {detail["regular_hours"]} regular hours, '
+                     f'{detail["overtime_hours"]} overtime hours and ${detail["tips"]} in tips '
+                     'not included in the import file. The totals above and store sheets include them.\n')
         # Keep employee details in the Excel attachments. Mention an unmapped
         # zero-hour person only while the actual roster still has that issue.
         for person in summary['employees']:
