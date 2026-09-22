@@ -283,7 +283,11 @@ must use this prepared message before its send/import stages.
   retries do not duplicate batches or resend completed deliveries.
 
 The biweekly workflow and delivery orchestration are implemented, but scheduled
-delivery remains disabled pending reconciliation. The September 20 live check
+delivery remains disabled pending reconciliation. Since September 22, a due
+scheduled job runs read-only preflight checks even when
+`PAYROLL_AUTOMATION_ENABLED` is unset or false, so blockers appear as failed
+checks instead of an entirely skipped job. Only setting that variable to `true`
+enables scheduled email delivery; manual preview never sends email. The September 20 live check
 confirmed Gmail authentication and extracted Gateway tips for all 18 stores
 for September 6-19 inclusive. The private artifact contains `gateway-input.json`.
 [Live source check](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35539807831)

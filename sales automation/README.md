@@ -167,7 +167,9 @@ account for daylight saving and delayed GitHub jobs. Runs before local 08:00 ski
 GitHub scheduling can run late; exact 08:00 execution is not guaranteed.
 
 `SALES_AUTOMATION_ENABLED=true` enables scheduled delivery. Leave it unset until a
-live preview reconciles. A private `sales-delivery-state` branch records each
+live preview reconciles. When unset or false, due scheduled jobs run read-only
+preflight checks and record failures instead of skipping the entire job. They
+do not upload workbooks or send email. A private `sales-delivery-state` branch records each
 report date, preventing duplicate email. An uncertain SMTP outcome requires
 checking Gmail Sent before clearing the receipt; automatic retries never guess.
 

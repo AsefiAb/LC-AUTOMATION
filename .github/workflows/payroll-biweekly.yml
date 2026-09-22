@@ -24,7 +24,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   payroll:
-    if: github.event.repository.private == true && (github.event_name == 'workflow_dispatch' || vars.PAYROLL_AUTOMATION_ENABLED == 'true')
+    if: github.event.repository.private == true
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -53,7 +53,7 @@ jobs:
         env:
           START_DATE: ${{ inputs.start_date }}
           END_DATE: ${{ inputs.end_date }}
-          MODE: ${{ inputs.mode || 'deliver' }}
+          MODE: ${{ inputs.mode || (vars.PAYROLL_AUTOMATION_ENABLED == 'true' && 'deliver' || 'preflight') }}
           TCP_CLIENT_ID: ${{ secrets.TCP_CLIENT_ID }}
           TCP_CLIENT_SECRET: ${{ secrets.TCP_CLIENT_SECRET }}
           TCP_API_KEY: ${{ secrets.TCP_API_KEY }}
@@ -68,6 +68,9 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         shell: bash
         run: |
+          if [ "$MODE" = 'preflight' ]; then
+            echo 'Payroll validation only: delivery is disabled or preflight was selected. No email or ADP submission.' >> "$GITHUB_STEP_SUMMARY"
+          fi
           args=(--mode "$MODE")
           if [ -n "$START_DATE" ]; then args+=(--start "$START_DATE"); fi
           if [ -n "$END_DATE" ]; then args+=(--end "$END_DATE"); fi

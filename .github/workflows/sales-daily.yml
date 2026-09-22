@@ -25,7 +25,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   report:
-    if: github.event.repository.private == true && (github.event_name == 'workflow_dispatch' || vars.SALES_AUTOMATION_ENABLED == 'true')
+    if: github.event.repository.private == true
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -63,7 +63,7 @@ jobs:
           AZ_ALTAMETRICS_SESSION: ${{ secrets.AZ_ALTAMETRICS_SESSION }}
           TX_ALTAMETRICS_SESSION: ${{ secrets.TX_ALTAMETRICS_SESSION }}
           REPORT_DATE: ${{ inputs.report_date }}
-          MODE: ${{ inputs.mode || 'deliver' }}
+          MODE: ${{ inputs.mode || (vars.SALES_AUTOMATION_ENABLED == 'true' && 'deliver' || 'preflight') }}
           TCP_CLIENT_ID: ${{ secrets.TCP_CLIENT_ID }}
           TCP_CLIENT_SECRET: ${{ secrets.TCP_CLIENT_SECRET }}
           TCP_API_KEY: ${{ secrets.TCP_API_KEY }}
@@ -76,6 +76,9 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         shell: bash
         run: |
+          if [ "$MODE" = 'preflight' ]; then
+            echo 'Sales validation only: delivery is disabled or preflight was selected. No workbook uploads or email.' >> "$GITHUB_STEP_SUMMARY"
+          fi
           args=()
           if [ -n "$REPORT_DATE" ]; then args+=(--date "$REPORT_DATE"); fi
           case "$MODE" in
