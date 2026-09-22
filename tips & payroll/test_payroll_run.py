@@ -47,7 +47,7 @@ class PayrollPipelineTests(unittest.TestCase):
         tips = {'period': dates, 'verified': True, 'issues': [],
                 'stores': [{'store': s, 'total_tips': '76.63' if s == '3356-01' else '0.00'} for s in p.STORES]}
         with tempfile.TemporaryDirectory() as folder:
-            messages, summary = p.prepare(tips, payroll, Path(folder))
+            messages, summary = p.prepare_legacy(tips, payroll, Path(folder))
             self.assertEqual(len(list(Path(folder).glob('*.xlsx'))), 21)
             self.assertEqual(summary['managers'][0]['total_hours'], '85.92')
             self.assertEqual(summary['managers'][0]['overtime_hours'], '7.70')

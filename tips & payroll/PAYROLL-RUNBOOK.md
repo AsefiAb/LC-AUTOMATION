@@ -188,6 +188,52 @@ dependent on resolving the API discrepancy or supplying a matching native export
 
 ## Regional email delivery
 
+### Current ADP import layout (September 22 redesign)
+
+The regional attachment is now the native ADP CSV, not the former regional XLSX:
+CO `EPIFND00.CSV` (FND), AZ `EPIFNC00.CSV` (FNC), TX `EPIZKT00.CSV` (ZKT).
+Keep these filenames unchanged. Preserve every control line, employee file number,
+ADP name, rate, company, batch, and native last-name sort order. Change only regular
+hours, overtime hours and tips. Texas uses earnings code `T` and the heading
+`Other Earnings - TIP EARNS`; CO/AZ use `TIP`. Never substitute one for the other.
+
+`report_package.py` recomputes the store pools from Gateway and TCP, sums each GEID
+once per region across its stores, then matches the current ADP export. Unique
+exact names and alternate names explicitly provided in ADP parentheses can match.
+Spelling differences and duplicate names need owner-confirmed mappings with both
+source names and the ADP file number. No fuzzy match can assign payroll.
+
+Owner instruction: zero-hour TCP people absent from ADP stay out of imports and
+appear in `Add to ADP or review for termination.csv`. This is a review list, not
+an instruction to terminate anyone. Unmatched people with hours or tips block
+delivery; their earnings must never disappear. ADP-only rows remain present at
+zero with a warning in the private reconciliation audit.
+
+Each store workbook has one sheet with GEID, employee name, regular hours, overtime,
+total hours, and tips, sorted by last name. The top shows Gateway tips, eligible
+crew hours, and tips per hour. Manager exclusion and penny reconciliation remain
+unchanged. Local authoring uses the bundled artifact runtime; GitHub-hosted runners
+use openpyxl because the desktop artifact runtime is unavailable there.
+
+For reviewed source runs, dispatch **Build ADP imports and store payroll reports**.
+Its seven-file encrypted package contains the three source files (`tcp-audit.json`,
+`native-payroll.xml`, `gateway-input.json`), the three current ADP CSVs, and
+`settings.json` with period, `allow_missing_zero`, and confirmed `identities`.
+Preview runs create private artifacts without emailing. Import mismatches fail the
+run and keep incomplete CSVs inside `NEEDS REVIEW`. Delivery requires all three
+regions to reconcile. Replacements use a separate `adp-format-v2` receipt and a
+short replacement notice; ordinary retries still cannot duplicate emails.
+
+Scheduled runs use base64 ADP templates from `ADP_CO_TEMPLATE`, `ADP_AZ_TEMPLATE`,
+`ADP_TX_TEMPLATE` and JSON `ADP_ROSTER_SETTINGS` in GitHub Secrets. Refresh these
+from current ADP exports for each period; period mismatches block old rosters.
+Without an ADP roster API connection, new file numbers and updated ADP rates must
+come from those exports. Existing TCP zero-calculation failures still require
+native-export reconciliation. Scheduling alone cannot fill missing source data.
+
+The paragraphs below describe the earlier XLSX regional layout retained only
+for historical package validation; scheduled delivery uses the current CSV layout.
+
 Each completed period produces three separate emails to alicia@lccollc.com from
 ab@caazllc.com: `TX TIPS <period>`, `AZ TIPS <period>`, and `CO TIPS <period>`.
 For September 8–21 the period label is `9.8.26-9.21.26`; dates are derived from

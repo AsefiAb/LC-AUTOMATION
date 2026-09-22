@@ -1,0 +1,88 @@
+name: Build ADP imports and store payroll reports
+on:
+  workflow_dispatch:
+    inputs:
+      asset_id:
+        description: Encrypted private payroll source package asset ID
+        required: true
+        type: string
+      package_sha256:
+        description: SHA256 of the approved encrypted source package
+        required: true
+        type: string
+      mode:
+        description: Validate/download privately or email Alicia
+        type: choice
+        default: preview
+        options: [preview, deliver]
+      replace_earlier_reports:
+        description: Send the ADP-format replacement for an already delivered period
+        type: boolean
+        default: false
+permissions:
+  contents: write
+concurrency:
+  group: biweekly-payroll
+  cancel-in-progress: false
+jobs:
+  payroll:
+    if: github.event.repository.private == true && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r 'tips & payroll/requirements.txt'
+      - run: python -m unittest discover -s 'tips & payroll' -p 'test_*.py' -q
+      - name: Restore verified private source package
+        env:
+          ASSET_ID: ${{ inputs.asset_id }}
+          PACKAGE_SHA256: ${{ inputs.package_sha256 }}
+          PAYROLL_REVIEWED_PACKAGE_KEY: ${{ secrets.PAYROLL_REVIEWED_PACKAGE_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          python 'tips & payroll/reviewed_transfer.py' --package-type adp
+          --asset-id "$ASSET_ID" --sha256 "$PACKAGE_SHA256"
+          --folder "$RUNNER_TEMP/payroll-input"
+      - name: Reconcile TCP and Gateway, build imports, and verify every employee
+        env:
+          MODE: ${{ inputs.mode }}
+          REPLACE_REPORTS: ${{ inputs.replace_earlier_reports }}
+          CAAZ_GMAIL_APP_PASS: ${{ secrets.CAAZ_GMAIL_APP_PASS }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          args=(--folder "$RUNNER_TEMP/payroll-input" --output "$RUNNER_TEMP/payroll-output" --mode "$MODE")
+          if [ "$REPLACE_REPORTS" = 'true' ]; then args+=(--revision adp-format-v2); fi
+          python 'tips & payroll/run_current_package.py' "${args[@]}"
+      - name: Retain private outputs briefly
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: payroll-adp-${{ github.run_id }}
+          path: ${{ runner.temp }}/payroll-output/
+          retention-days: 3
+          if-no-files-found: ignore
+      - name: Explain result
+        if: always()
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p=Path(os.environ['RUNNER_TEMP'])/'payroll-output/adp-readiness.json'
+          if p.exists():
+              d=json.loads(p.read_text())
+              with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+                  f.write('ADP imports ready: '+str(d['ready'])+'\n\n')
+                  f.write('Mode: '+os.environ['MODE']+'\n\n')
+                  f.write('Unresolved matching checks: '+str(len(d['issues']))+'. See the private artifact for employee details.\n')
+          PY
+      - name: Remove temporary source data
+        if: always()
+        run: |
+          python -c "import os,pathlib,shutil; p=pathlib.Path(os.environ['RUNNER_TEMP'])/'payroll-input'; shutil.rmtree(p) if p.exists() else None"

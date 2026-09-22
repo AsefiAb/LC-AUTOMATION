@@ -230,7 +230,7 @@ def style(sheet, widths):
     sheet.print_title_rows = '1:1'
 
 
-def prepare(gateway_data, payroll, output):
+def prepare_legacy(gateway_data, payroll, output):
     allocation = allocate(gateway_data, payroll)
     if {r['store'] for r in allocation['stores']} != set(STORES):
         raise ValueError('Gateway must cover all 18 stores')
@@ -306,6 +306,30 @@ def prepare(gateway_data, payroll, output):
     return messages, summary
 
 
+def prepare(gateway_data, payroll, output):
+    from report_package import prepare_current, verify_stores
+    from adp_roster import FILES
+    import base64
+    templates = output / 'adp-templates'
+    templates.mkdir(parents=True, exist_ok=True)
+    settings_text = os.environ.get('ADP_ROSTER_SETTINGS', '')
+    if not settings_text:
+        raise ValueError('Current-period ADP roster settings and exports are required')
+    settings = json.loads(settings_text)
+    if settings.get('period') != payroll['period']:
+        raise ValueError('Refresh ADP exports for the new payroll period before creating import files')
+    for code, _, filename in FILES.values():
+        value = os.environ.get('ADP_' + code + '_TEMPLATE', '')
+        if not value:
+            raise ValueError('Missing current ADP template for ' + code)
+        (templates / filename).write_bytes(base64.b64decode(value, validate=True))
+    messages, data, audit = prepare_current(gateway_data, payroll, output, templates, settings)
+    verify_stores(data, output)
+    if not audit['ready']:
+        raise ValueError('ADP employee matching is incomplete; inspect private adp-readiness.json')
+    return messages, data['summary']
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--start')
@@ -359,7 +383,7 @@ def main():
     if args.mode == 'preflight':
         return 0
     messages, summary = prepare(tips, payroll, output)
-    print(f'Prepared 18 store workbooks and three single-sheet regional workbooks for {len(summary["employees"])} people')
+    print(f'Prepared 18 store workbooks and three native ADP regional imports for {len(summary["employees"])} TCP people')
     if ledgers:
         send_regions(messages, dates['end_date'], ledgers)
     else:

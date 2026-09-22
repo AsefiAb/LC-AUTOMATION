@@ -14,7 +14,7 @@ def regional_filename(region, dates):
     return f'{REGIONS[region][0]} TIPS {date_label(dates)}.xlsx'
 
 
-def build_region_messages(summary, sources):
+def build_region_messages(summary, sources, adp_imports=False):
     label = date_label(summary['period'])
     grouped = regional_people(summary)
     files = {Path(s['path']).name: s for s in sources}
@@ -25,8 +25,11 @@ def build_region_messages(summary, sources):
         people = grouped[region]
         totals = {key: decimal_text(sum(cents(p[key], key) for p in people))
                   for key in ('regular_hours', 'overtime_hours', 'total_hours', 'tips')}
-        expected = [regional_filename(region, summary['period'])] + [
+        from adp_roster import FILES
+        expected = [FILES[region][2] if adp_imports else regional_filename(region, summary['period'])] + [
             f'{sid} {label}.xlsx' for sid in summary['stores'] if sid.startswith(region + '-')]
+        if adp_imports and 'Add to ADP or review for termination.csv' in files:
+            expected.append('Add to ADP or review for termination.csv')
         if any(filename not in files for filename in expected):
             raise ValueError(f'Missing {code} payroll attachments')
         message = EmailMessage()
@@ -52,21 +55,31 @@ def build_region_messages(summary, sources):
             content = Path(spec['path']).read_bytes()
             if hashlib.sha256(content).hexdigest() != spec['sha256']:
                 raise ValueError('Payroll attachment changed after verification')
-            message.add_attachment(content, maintype='application',
-                subtype='vnd.openxmlformats-officedocument.spreadsheetml.sheet', filename=filename)
+            if filename.upper().endswith('.CSV'):
+                message.add_attachment(content, maintype='text', subtype='csv', filename=filename)
+            else:
+                message.add_attachment(content, maintype='application',
+                    subtype='vnd.openxmlformats-officedocument.spreadsheetml.sheet', filename=filename)
         if len(message.as_bytes()) > 24_000_000:
             raise ValueError('Regional payroll email exceeds message size limit')
         messages.append(message)
     return messages
 
 
-def delivery_ledgers(end_date):
+def delivery_ledgers(end_date, revision=None):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'sales automation'))
     from daily_report import DeliveryLedger
     legacy = DeliveryLedger(end_date, namespace='payroll').read()
-    if legacy:
+    if legacy and not revision:
         raise ValueError('Legacy combined payroll delivery exists; review before sending regional emails')
-    ledgers = {code: DeliveryLedger(end_date + '-' + code, namespace='payroll') for code, _ in REGIONS.values()}
+    if revision not in (None, 'adp-format-v2'):
+        raise ValueError('Unknown payroll delivery revision')
+    ledgers = {code: DeliveryLedger(end_date + '-' + code + ('-' + revision if revision else ''), namespace='payroll') for code, _ in REGIONS.values()}
+    if revision:
+        for code in ledgers:
+            prior = DeliveryLedger(end_date + '-' + code, namespace='payroll').read()
+            if prior and prior.get('status') != 'sent':
+                raise ValueError('An earlier regional email has an uncertain outcome; check Gmail Sent')
     # Inspect all regions before any send; an uncertain prior SMTP outcome must
     # be resolved first. Confirmed sends are skipped on a retry.
     for ledger in ledgers.values():

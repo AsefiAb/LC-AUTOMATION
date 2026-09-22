@@ -69,6 +69,10 @@ jobs:
           TX_GATEWAY_USER: ${{ secrets.TX_GATEWAY_USER }}
           TX_GATEWAY_PASS: ${{ secrets.TX_GATEWAY_PASS }}
           CAAZ_GMAIL_APP_PASS: ${{ secrets.CAAZ_GMAIL_APP_PASS }}
+          ADP_CO_TEMPLATE: ${{ secrets.ADP_CO_TEMPLATE }}
+          ADP_AZ_TEMPLATE: ${{ secrets.ADP_AZ_TEMPLATE }}
+          ADP_TX_TEMPLATE: ${{ secrets.ADP_TX_TEMPLATE }}
+          ADP_ROSTER_SETTINGS: ${{ secrets.ADP_ROSTER_SETTINGS }}
           GITHUB_TOKEN: ${{ github.token }}
         shell: bash
         run: |

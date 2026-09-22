@@ -39,10 +39,14 @@ def read_template(raw, company, batch):
         original = ''.join(physical[previous:reader.line_num])
         previous = reader.line_num
         key = None
-        if row == HEADER:
+        if row and row[:8] == HEADER[:8] and len(row) == 9 and row[8] in ('TIP', 'Other Earnings - TIP EARNS'):
             header_count += 1
+            tip_header = row[8]
         elif row and row[0] in CONTROL:
-            if row[0] in controls or row[:len(CONTROL[row[0]])] != CONTROL[row[0]]:
+            expected = CONTROL[row[0]]
+            if row[0] == '!Column9' and row[1:2] == ['Other Earnings - TIP EARNS']:
+                expected = ['!Column9', 'Other Earnings - TIP EARNS', '', 'Earnings 3 Code', 'Earnings 3 Amount', 'T']
+            if row[0] in controls or row[:len(expected)] != expected:
                 raise ValueError('ADP earnings-column metadata is duplicated or unsupported')
             controls[row[0]] = row
         elif row and row[0] and not row[0].startswith('!'):
@@ -57,6 +61,8 @@ def read_template(raw, company, batch):
         parts.append((key, row, original))
     if header_count != 1 or set(controls) != set(CONTROL) or not employees:
         raise ValueError('ADP template is missing its header, earnings metadata or employee roster')
+    if controls['!Column9'][1] != tip_header:
+        raise ValueError('ADP tip header and earnings metadata do not agree')
     return {'parts': parts, 'employees': employees, 'encoding': encoding,
             'newline': '\r\n' if '\r\n' in text else '\n'}
 

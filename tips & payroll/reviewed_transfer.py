@@ -16,7 +16,7 @@ import requests
 from nacl.secret import SecretBox
 
 
-def unpack_package(ciphertext, key, expected_hash, destination):
+def unpack_package(ciphertext, key, expected_hash, destination, package_type='legacy'):
     if not re.fullmatch(r'[a-f0-9]{64}', expected_hash):
         raise ValueError('Invalid approved package digest')
     if hashlib.sha256(ciphertext).hexdigest() != expected_hash:
@@ -26,7 +26,10 @@ def unpack_package(ciphertext, key, expected_hash, destination):
         entries = archive.infolist()
         names = [entry.filename for entry in entries]
         sources = {'tcp-audit.json', 'native-payroll.xml', 'gateway-input.json'}
-        if (len(entries) != 24 or len(set(names)) != 24 or not sources <= set(names)
+        if package_type == 'adp':
+            sources |= {'EPIFND00.CSV', 'EPIFNC00.CSV', 'EPIZKT00.CSV', 'settings.json'}
+        count = 7 if package_type == 'adp' else 24
+        if (len(entries) != count or len(set(names)) != count or not sources <= set(names)
                 or sum(entry.file_size for entry in entries) > 50_000_000):
             raise ValueError('Unexpected payroll package contents')
         for name in names:
@@ -43,6 +46,7 @@ def main():
     parser.add_argument('--asset-id', required=True, type=int)
     parser.add_argument('--sha256', required=True)
     parser.add_argument('--folder', type=Path, required=True)
+    parser.add_argument('--package-type', choices=['legacy', 'adp'], default='legacy')
     args = parser.parse_args()
     if (os.environ.get('GITHUB_ACTIONS') != 'true'
             or os.environ.get('GITHUB_REPOSITORY') != 'AsefiAb/LC-AUTOMATION'):
@@ -59,7 +63,7 @@ def main():
     response.raise_for_status()
     if len(response.content) > 50_000_000:
         raise ValueError('Package too large')
-    unpack_package(response.content, os.environ['PAYROLL_REVIEWED_PACKAGE_KEY'], args.sha256, args.folder)
+    unpack_package(response.content, os.environ['PAYROLL_REVIEWED_PACKAGE_KEY'], args.sha256, args.folder, args.package_type)
     print('Approved encrypted package restored; source reconciliation follows.')
 
 
