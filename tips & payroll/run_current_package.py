@@ -5,7 +5,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from payroll_run import normalize, period_for
+from payroll_run import normalize, period_for, fetch_tcp
 from tcp_report_fallback import apply_export
 from report_package import prepare_current, verify_stores
 from regional_email import delivery_ledgers, send_regions
@@ -17,21 +17,31 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--mode', choices=['preview', 'deliver'], default='preview')
     parser.add_argument('--revision', choices=['adp-format-v2'])
+    parser.add_argument('--refresh-sources', action='store_true')
     args = parser.parse_args()
     read = lambda name: json.loads((args.folder / name).read_text(encoding='utf-8-sig'))
     settings = read('settings.json')
-    source = apply_export(read('tcp-audit.json'), args.folder / 'native-payroll.xml')
+    dates = settings['period']
+    period_for(datetime.now(timezone.utc), dates['start_date'], dates['end_date'])
+    args.output.mkdir(parents=True, exist_ok=True)
+    if args.refresh_sources:
+        import gateway
+        source = fetch_tcp(dates)
+        tips = gateway.fetch(dates)
+        (args.output / 'tcp-audit.json').write_text(json.dumps(source), encoding='utf-8')
+        (args.output / 'gateway-input.json').write_text(json.dumps(tips), encoding='utf-8')
+    else:
+        source, tips = read('tcp-audit.json'), read('gateway-input.json')
+    source = apply_export(source, args.folder / 'native-payroll.xml')
     payroll = normalize(source)
     dates = payroll['period']
     period_for(datetime.now(timezone.utc), dates['start_date'], dates['end_date'])
     if settings.get('period') != dates:
         raise ValueError('ADP template bundle must be confirmed for this pay period')
-    messages, data, audit = prepare_current(read('gateway-input.json'), payroll, args.output, args.folder, settings)
+    messages, data, audit = prepare_current(tips, payroll, args.output, args.folder, settings)
     verify_stores(data, args.output)
     print('All 18 store workbooks verified against TCP/Gateway source calculations.')
     print(f'ADP import readiness: {audit["ready"]}; {len(audit["issues"])} unresolved checks (details in private artifacts).')
-    if not audit['ready']:
-        return 2
     if args.mode == 'deliver':
         if os.environ.get('GITHUB_REPOSITORY') != 'AsefiAb/LC-AUTOMATION' or os.environ.get('GITHUB_ACTIONS') != 'true':
             raise ValueError('Delivery requires the private repository workflow')
@@ -41,11 +51,14 @@ def main():
                 # Keep the requested short summary and add one replacement notice.
                 part = message.get_body(preferencelist=('plain',))
                 part.set_content(part.get_content() + '\nThese files replace the reports sent earlier for this pay period.\n')
-        result = send_regions(messages, dates['end_date'], delivery_ledgers(dates['end_date'], args.revision))
+        expected = {code for code, detail in audit['regions'].items() if detail['ready']}
+        if {m['Subject'].split()[0] for m in messages} != expected:
+            raise ValueError('Only fully reconciled regions can be emailed')
+        result = send_regions(messages, dates['end_date'], delivery_ledgers(dates['end_date'], args.revision), allow_partial=True) if messages else {}
         (args.output / 'delivery-results.json').write_text(json.dumps(result, indent=2))
     else:
         print('Preview only. No email sent and no ADP import submitted.')
-    return 0
+    return 0 if audit['ready'] else 2
 
 
 if __name__ == '__main__':

@@ -15,6 +15,10 @@ on:
         type: choice
         default: preview
         options: [preview, deliver]
+      refresh_sources:
+        description: Fetch TCP and Gateway again before rebuilding all reports
+        type: boolean
+        default: false
       replace_earlier_reports:
         description: Send the ADP-format replacement for an already delivered period
         type: boolean
@@ -37,6 +41,9 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r 'tips & payroll/requirements.txt'
+      - name: Install browser for fresh Gateway collection
+        if: inputs.refresh_sources == true
+        run: python -m playwright install --with-deps chromium
       - run: python -m unittest discover -s 'tips & payroll' -p 'test_*.py' -q
       - name: Restore verified private source package
         env:
@@ -52,11 +59,23 @@ jobs:
         env:
           MODE: ${{ inputs.mode }}
           REPLACE_REPORTS: ${{ inputs.replace_earlier_reports }}
+          REFRESH_SOURCES: ${{ inputs.refresh_sources }}
           CAAZ_GMAIL_APP_PASS: ${{ secrets.CAAZ_GMAIL_APP_PASS }}
+          TCP_CLIENT_ID: ${{ secrets.TCP_CLIENT_ID }}
+          TCP_CLIENT_SECRET: ${{ secrets.TCP_CLIENT_SECRET }}
+          TCP_API_KEY: ${{ secrets.TCP_API_KEY }}
+          TCP_COMPANY_ID: ${{ vars.TCP_COMPANY_ID }}
+          CO_GATEWAY_USER: ${{ secrets.CO_GATEWAY_USER }}
+          CO_GATEWAY_PASS: ${{ secrets.CO_GATEWAY_PASS }}
+          AZ_GATEWAY_USER: ${{ secrets.AZ_GATEWAY_USER }}
+          AZ_GATEWAY_PASS: ${{ secrets.AZ_GATEWAY_PASS }}
+          TX_GATEWAY_USER: ${{ secrets.TX_GATEWAY_USER }}
+          TX_GATEWAY_PASS: ${{ secrets.TX_GATEWAY_PASS }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           args=(--folder "$RUNNER_TEMP/payroll-input" --output "$RUNNER_TEMP/payroll-output" --mode "$MODE")
           if [ "$REPLACE_REPORTS" = 'true' ]; then args+=(--revision adp-format-v2); fi
+          if [ "$REFRESH_SOURCES" = 'true' ]; then args+=(--refresh-sources); fi
           python 'tips & payroll/run_current_package.py' "${args[@]}"
       - name: Retain private outputs briefly
         if: always()

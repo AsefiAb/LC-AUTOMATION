@@ -115,12 +115,13 @@ def prepare_current(gateway, payroll, output, template_folder, settings=None, wr
         writer.writeheader()
         writer.writerows(audit['missing'])
     messages = []
-    if audit['ready']:
+    ready_regions = [region for region, (code, _, _) in FILES.items() if audit['regions'].get(code, {}).get('ready')]
+    if ready_regions:
         from regional_email import build_region_messages
-        paths = [output / name for _, _, name in FILES.values()] + [output / s['filename'] for s in specs]
+        paths = [output / FILES[region][2] for region in ready_regions] + [output / s['filename'] for s in specs]
         paths.append(output / 'Add to ADP or review for termination.csv')
         sources = [{'path': str(p), 'sha256': hashlib.sha256(p.read_bytes()).hexdigest()} for p in paths]
-        messages = build_region_messages(data['summary'], sources, adp_imports=True)
+        messages = build_region_messages(data['summary'], sources, adp_imports=True, included_regions=ready_regions)
         for message in messages:
             (output / (message['Subject'] + '.eml')).write_bytes(message.as_bytes())
     return messages, data, audit

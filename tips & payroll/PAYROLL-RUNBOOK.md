@@ -220,8 +220,12 @@ Its seven-file encrypted package contains the three source files (`tcp-audit.jso
 `native-payroll.xml`, `gateway-input.json`), the three current ADP CSVs, and
 `settings.json` with period, `allow_missing_zero`, and confirmed `identities`.
 Preview runs create private artifacts without emailing. Import mismatches fail the
-run and keep incomplete CSVs inside `NEEDS REVIEW`. Delivery requires all three
-regions to reconcile. Replacements use a separate `adp-format-v2` receipt and a
+run and keep incomplete CSVs inside `NEEDS REVIEW`. An explicitly dispatched
+delivery sends only regions that completely reconcile; blocked regions are held
+and the overall run remains failed/partial. Per-region delivery receipts show
+exactly which emails were sent. Select `refresh_sources` to fetch TCP and Gateway
+again and reconcile them with the native report before building any attachments.
+Replacements use a separate `adp-format-v2` receipt and a
 short replacement notice; ordinary retries still cannot duplicate emails.
 
 Scheduled runs use base64 ADP templates from `ADP_CO_TEMPLATE`, `ADP_AZ_TEMPLATE`,

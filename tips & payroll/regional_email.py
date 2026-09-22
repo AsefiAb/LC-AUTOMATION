@@ -14,14 +14,19 @@ def regional_filename(region, dates):
     return f'{REGIONS[region][0]} TIPS {date_label(dates)}.xlsx'
 
 
-def build_region_messages(summary, sources, adp_imports=False):
+def build_region_messages(summary, sources, adp_imports=False, included_regions=None):
     label = date_label(summary['period'])
     grouped = regional_people(summary)
     files = {Path(s['path']).name: s for s in sources}
     if len(files) != len(sources):
         raise ValueError('Duplicate payroll attachment filename')
     messages = []
+    selected = set(REGIONS) if included_regions is None else set(included_regions)
+    if not selected <= set(REGIONS):
+        raise ValueError('Unknown payroll email region')
     for region, (code, name) in REGIONS.items():
+        if region not in selected:
+            continue
         people = grouped[region]
         totals = {key: decimal_text(sum(cents(p[key], key) for p in people))
                   for key in ('regular_hours', 'overtime_hours', 'total_hours', 'tips')}
@@ -89,10 +94,12 @@ def delivery_ledgers(end_date, revision=None):
     return ledgers
 
 
-def send_regions(messages, end_date, ledgers=None):
+def send_regions(messages, end_date, ledgers=None, allow_partial=False):
     ledgers = ledgers or delivery_ledgers(end_date)
     from daily_report import deliver
-    if len(messages) != 3 or [m['Subject'].split()[0] for m in messages] != ['TX', 'AZ', 'CO']:
+    codes = [m['Subject'].split()[0] for m in messages]
+    expected = [code for code in ['TX', 'AZ', 'CO'] if code in codes] if allow_partial else ['TX', 'AZ', 'CO']
+    if not codes or codes != expected:
         raise ValueError('Exactly one TX, AZ and CO email is required')
     results = {}
     for message in messages:

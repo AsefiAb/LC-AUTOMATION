@@ -12,6 +12,22 @@ import daily_report
 
 
 class RegionalDeliveryTests(unittest.TestCase):
+    def test_partial_delivery_sends_only_explicit_ready_regions(self):
+        from email.message import EmailMessage
+        messages = []
+        for code in ['TX', 'AZ']:
+            message = EmailMessage()
+            message['Subject'] = code + ' TIPS 9.8.26-9.21.26'
+            messages.append(message)
+        ledgers = {code: MagicMock() for code in ['TX', 'AZ', 'CO']}
+        with patch.object(daily_report, 'deliver', return_value='sent') as send:
+            result = regional_email.send_regions(messages, '2026-09-21', ledgers, allow_partial=True)
+            self.assertEqual(result, {'TX': 'sent', 'AZ': 'sent'})
+            self.assertEqual(send.call_count, 2)
+            self.assertEqual([c.args[1] for c in send.call_args_list], [ledgers['TX'], ledgers['AZ']])
+        with self.assertRaises(ValueError):
+            regional_email.send_regions(messages, '2026-09-21', ledgers)
+
     def test_legacy_receipt_blocks_three_new_sends(self):
         with patch.object(daily_report, 'DeliveryLedger') as ledger:
             ledger.return_value.read.return_value = {'status': 'sent'}
