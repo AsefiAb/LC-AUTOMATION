@@ -47,19 +47,28 @@ class PayrollPipelineTests(unittest.TestCase):
         tips = {'period': dates, 'verified': True, 'issues': [],
                 'stores': [{'store': s, 'total_tips': '76.63' if s == '3356-01' else '0.00'} for s in p.STORES]}
         with tempfile.TemporaryDirectory() as folder:
-            message, summary = p.prepare(tips, payroll, Path(folder))
-            self.assertEqual(len(list(Path(folder).glob('*.xlsx'))), 19)
+            messages, summary = p.prepare(tips, payroll, Path(folder))
+            self.assertEqual(len(list(Path(folder).glob('*.xlsx'))), 21)
             self.assertEqual(summary['managers'][0]['total_hours'], '85.92')
             self.assertEqual(summary['managers'][0]['overtime_hours'], '7.70')
             self.assertEqual(summary['managers'][0]['tips'], '0.00')
             self.assertEqual(summary['totals']['tips'], '76.63')
             self.assertEqual(len(summary['employees']), 3)
-            self.assertEqual(message['To'], 'alicia@lccollc.com')
+            for message, code, region, count in zip(messages, ['TX', 'AZ', 'CO'], ['3910', '3759', '3356'], [5, 8, 8]):
+                self.assertEqual(message['To'], 'alicia@lccollc.com')
+                self.assertEqual(message['Subject'], f'{code} TIPS 8.25.26-9.7.26')
+                attachments = [a.get_filename() for a in message.iter_attachments()]
+                self.assertEqual(len(attachments), count)
+                self.assertEqual(attachments[0], f'{code} TIPS 8.25.26-9.7.26.xlsx')
+                self.assertTrue(all(name.startswith(region + '-') for name in attachments[1:]))
+                regional = load_workbook(Path(folder) / attachments[0])
+                self.assertEqual(regional.sheetnames, [region])
+                regional.close()
             book = load_workbook(Path(folder) / '3356-01 8.25.26-9.7.26.xlsx')
             self.assertTrue(any(c.value == '=No' and c.data_type == 's' for row in book['Payroll'] for c in row))
             book.close()
-            combined = load_workbook(Path(folder) / 'Combined payroll 8.25.26-9.7.26.xlsx')
-            self.assertEqual(combined.sheetnames[:3], ['3910', '3759', '3356'])
+            combined = load_workbook(Path(folder) / 'CO TIPS 8.25.26-9.7.26.xlsx')
+            self.assertEqual(combined.sheetnames, ['3356'])
             self.assertEqual([c.value for c in combined['3356'][1]], p.FIELDS)
             self.assertNotIn('Stores worked', [c.value for c in combined['3356'][1]])
             manager = next(row for row in combined['3356'].iter_rows(values_only=True) if row[0] == '102')

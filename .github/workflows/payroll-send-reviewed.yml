@@ -1,0 +1,36 @@
+name: Send reviewed regional payroll
+on:
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: Inclusive start date YYYY-MM-DD of the locally verified package
+        required: true
+        type: string
+      end_date:
+        description: Inclusive end date YYYY-MM-DD
+        required: true
+        type: string
+permissions:
+  contents: write
+concurrency:
+  group: biweekly-payroll
+  cancel-in-progress: false
+jobs:
+  send:
+    if: github.event.repository.private == true && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Windows, X64, lc-payroll-delivery]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify source data, attachments, and send Alicia three regional emails
+        shell: powershell
+        env:
+          START_DATE: ${{ inputs.start_date }}
+          END_DATE: ${{ inputs.end_date }}
+          CAAZ_GMAIL_APP_PASS: ${{ secrets.CAAZ_GMAIL_APP_PASS }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python 'tips & payroll/send_reviewed.py' --start $env:START_DATE --end $env:END_DATE --send
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

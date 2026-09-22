@@ -18,6 +18,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from allocate_tips import allocate, MANAGEMENT
 import gateway
+from regional_email import build_region_messages, regional_filename, delivery_ledgers, send_regions
 from payroll_email_summary import (roles, LABELS, FIELDS, date_label, read_store_workbooks,
                                    summarize_rows, build_message, COLUMNS, display, regional_people)
 from summarize_inspection import summarize, store_label
@@ -276,13 +277,13 @@ def prepare(gateway_data, payroll, output):
         manifest['workbooks'].append({'store': sid, 'file': filename, 'sheet': 'Payroll', 'header_row': 1})
     source_rows, sources = read_store_workbooks(manifest, output)
     summary = summarize_rows(manifest, source_rows)
-    combined = Workbook()
-    combined.remove(combined.active)
     regional_columns = [('GEID', 'geid'), ('Payroll ID', 'payroll_ids'), ('First Name', 'first_name'),
                         ('Last Name', 'last_name'), ('Job Title', 'job_title'), ('Total Hours', 'total_hours'),
                         ('Tips', 'tips'), ('Reg Hours', 'regular_hours'), ('OT Hours', 'overtime_hours')]
     for region, rows in regional_people(summary).items():
-        sheet = combined.create_sheet(region)
+        regional_book = Workbook()
+        sheet = regional_book.active
+        sheet.title = region
         sheet.append([c[0] for c in regional_columns])
         for row in rows:
             sheet.append([Decimal(row[key]) if key in ('regular_hours', 'overtime_hours', 'total_hours', 'tips')
@@ -294,24 +295,15 @@ def prepare(gateway_data, payroll, output):
         # trusted formulas and must be written after that pass.
         for col in ('F', 'G', 'H', 'I'):
             sheet[f'{col}{last + 1}'] = f'=SUM({col}2:{col}{last})' if last > 1 else 0
-    for title, rows in (('All employees', summary['employees']), ('Managers', summary['managers'])):
-        sheet = combined.create_sheet(title)
-        sheet.append([c[0] for c in COLUMNS])
-        for row in rows:
-            sheet.append([Decimal(row[key]) if key in ('regular_hours', 'overtime_hours', 'total_hours', 'tips') else display(row, key) for _, key in COLUMNS])
-        style(sheet, [14, 13, 18, 20, 28, 35, 16, 16, 16, 14])
-    file = output / f'Combined payroll {label}.xlsx'
-    combined.save(file)
-    sources.append({'path': str(file), 'sha256': hashlib.sha256(file.read_bytes()).hexdigest()})
-    message = build_message(summary, sources)
-    message['Message-ID'] = f'<payroll-{payroll["period"]["start_date"]}-{payroll["period"]["end_date"]}@caazllc.com>'
-    if len(message.as_bytes()) > 24_000_000:
-        raise ValueError('Payroll email exceeds the 24 MB encoded message limit')
+        file = output / regional_filename(region, payroll['period'])
+        regional_book.save(file)
+        sources.append({'path': str(file), 'sha256': hashlib.sha256(file.read_bytes()).hexdigest()})
+    messages = build_region_messages(summary, sources)
     for name, data in (('manifest', manifest), ('allocation', allocation), ('combined-payroll', summary)):
         (output / f'{name}.json').write_text(json.dumps(data, indent=2), encoding='utf-8')
-    (output / 'payroll-email.eml').write_bytes(message.as_bytes())
-    (output / 'payroll-email.html').write_text(message.get_body(preferencelist=('html',)).get_content(), encoding='utf-8')
-    return message, summary
+    for message in messages:
+        (output / (message['Subject'] + '.eml')).write_bytes(message.as_bytes())
+    return messages, summary
 
 
 def main():
@@ -331,16 +323,12 @@ def main():
     output = FOLDER / 'reports' / (dates['start_date'] + '_' + dates['end_date'])
     output.mkdir(parents=True, exist_ok=True)
     sys.path.insert(0, str(FOLDER.parent / 'sales automation'))
-    from daily_report import DeliveryLedger, deliver
-    ledger = None
+    ledgers = None
     if args.mode == 'deliver':
-        ledger = DeliveryLedger(dates['end_date'], namespace='payroll')
-        previous = ledger.read()
-        if previous:
-            if previous.get('status') == 'sent':
-                print('Payroll period already delivered; no changes made')
-                return 0
-            raise ValueError('Previous payroll email outcome unresolved; check Gmail Sent before retrying')
+        ledgers = delivery_ledgers(dates['end_date'])
+        if all((ledger.read() or {}).get('status') == 'sent' for ledger in ledgers.values()):
+            print('All three regional payroll emails already delivered; no changes made')
+            return 0
     missing = gateway.missing_secrets() + [key for key in ('TCP_CLIENT_ID', 'TCP_CLIENT_SECRET', 'TCP_API_KEY', 'CAAZ_GMAIL_APP_PASS') if not os.environ.get(key)]
     if missing and args.mode != 'preflight':
         raise ValueError('Missing secrets: ' + ', '.join(missing))
@@ -370,10 +358,10 @@ def main():
         return 1
     if args.mode == 'preflight':
         return 0
-    message, summary = prepare(tips, payroll, output)
-    print(f'Prepared 18 store workbooks and combined workbook for {len(summary["employees"])} people')
-    if ledger:
-        print('Payroll email ' + deliver(message, ledger, dates['end_date']))
+    messages, summary = prepare(tips, payroll, output)
+    print(f'Prepared 18 store workbooks and three single-sheet regional workbooks for {len(summary["employees"])} people')
+    if ledgers:
+        send_regions(messages, dates['end_date'], ledgers)
     else:
         print('Private preview only; no email sent')
     return 0

@@ -180,3 +180,28 @@ Incomplete TCP/Gateway data still fails the run instead of sending an incomplete
 payroll. A fresh September 22 API check after generating the native report still
 returned the same 280 zero calculation splits, so unattended completion remains
 dependent on resolving the API discrepancy or supplying a matching native export.
+
+## Regional email delivery
+
+Each completed period produces three separate emails to alicia@lccollc.com from
+ab@caazllc.com: `TX TIPS <period>`, `AZ TIPS <period>`, and `CO TIPS <period>`.
+For September 8–21 the period label is `9.8.26-9.21.26`; dates are derived from
+the validated period on every run. Each email attaches one single-worksheet
+regional totals Excel file plus that region's individual store workbooks
+(TX: 4 stores, AZ: 7, CO: 7). Regional rows combine a person's hours and previously
+allocated store tips by GEID, without store columns or redistributing tip pools.
+
+The delivery ledger keeps a separate receipt for each region and period. Confirmed
+sends are skipped when retried; uncertain SMTP outcomes require checking Gmail Sent.
+An existing legacy combined-email receipt blocks new regional delivery for that
+period until reviewed, avoiding a duplicate payroll email.
+
+For a reviewed native-export fallback, stage `tcp-audit.json`, `native-payroll.xml`,
+`gateway-input.json`, and the 21 reviewed Excel files in
+`%LOCALAPPDATA%/LC-Automation/payroll-delivery/START_END` on the trusted Windows
+runner. `send_reviewed.py --start START --end END` verifies the sources and every
+employee's cached Excel values without sending. The manually dispatched
+**Send reviewed regional payroll** workflow repeats those checks and sends the
+three messages using the existing GitHub Gmail secret. It requires the temporary
+`lc-payroll-delivery` runner and shares the scheduled payroll concurrency lock.
+Private source files and email previews are never committed to Git.
