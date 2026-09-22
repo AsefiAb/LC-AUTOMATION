@@ -36,10 +36,12 @@ No Microsoft or ADP credentials are required for payroll reports.
   Leave is excluded. Do not recalculate OT from an 80-hour two-week threshold.
 - Group managers and the full employee list by GEID across stores. Names alone
   are not identifiers. Blank Payroll IDs remain blank while ADP is on hold.
-- Include the current TCP roster and people with worked hours during the period;
-  zero-hour staff need a verified default job assignment and home store. Unknown
-  roles, missing names/stores, open punches, unmatched segments and closed shifts
-  with zero calculated hours stop delivery and appear in a private issue report.
+- Include the current TCP roster and people with worked hours during the period.
+  People with no worked shifts and no role remain UNASSIGNED at zero hours/tips,
+  with a setup warning; without a home store they appear in the combined roster.
+  Unknown roles on worked shifts, missing names or worked-store mappings, open
+  punches, unmatched segments and elapsed shifts with zero calculated hours stop
+  delivery and appear in a private issue report.
 - Total and OT are rounded to hundredths; displayed regular is Total minus OT
   so columns add up. This can differ by .01 from separately rounding regular.
   Exact source minutes remain in private audit JSON. Hours are never hh:mm.
@@ -72,16 +74,17 @@ Managers in both views are counted once in overall totals.
    repo. Keep it for rollback if any stage fails.
 4. Set repository variable `PAYROLL_AUTOMATION_ENABLED=true` for scheduled runs.
 
-GitHub jobs may start late. UTC triggers cover both Pacific DST offsets and one
-catch-up attempt; only the correct alternate Tuesday, at or after 08:00, runs.
+GitHub jobs may start late. America/Los_Angeles triggers cover daylight saving
+time and catch-up attempts; only the correct alternate Tuesday, at or after 08:00, runs.
 The `payroll-delivery-state` branch records the period and prevents duplicates.
 An uncertain send requires checking Gmail Sent before manually clearing a receipt.
 
 Private artifacts retain source audit data, mapping issues and generated reports
 for three days. The workflow fails on unresolved issues rather than emailing
-partial payroll. Production delivery remains disabled until live input checks and
-the first real preview succeed. Gateway extraction and Gmail authentication have
-passed live checks; final payroll reconciliation is still outstanding.
+partial payroll. Scheduled delivery was enabled on September 22 after a completed
+local reconciliation and Excel preview. Gateway extraction and Gmail authentication
+have passed live checks. The API calculation discrepancy still blocks unattended
+completion whenever TCP returns missing calculated hours; see the latest note below.
 
 ## Live TCP check, September 20, 2026
 
