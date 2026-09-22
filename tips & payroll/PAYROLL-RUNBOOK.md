@@ -161,4 +161,15 @@ block allocation and email. Managers remain excluded across all stores.
 
 The dated Excel outputs and source audits remain private under `reports/`.
 This completed manual reconciliation does not resolve the unattended TCP API
-discrepancy or turn on delivery. No ADP import is needed to prepare these reports.
+discrepancy. No ADP import is needed to prepare these reports.
+
+Scheduled delivery is enabled at the owner's request. The first trigger is
+08:00 America/Los_Angeles, with retries at 08:20, 09:20 and 11:20. The alternating
+Tuesday gate is anchored to September 22, 2026 (next dates October 6, October 20,
+November 3). The IANA time zone keeps 08:00 correct through daylight saving time.
+GitHub may queue or drop scheduled triggers; this is a requested start time,
+not a guaranteed email arrival time. Delivery receipts prevent duplicate email.
+Incomplete TCP/Gateway data still fails the run instead of sending an incomplete
+payroll. A fresh September 22 API check after generating the native report still
+returned the same 280 zero calculation splits, so unattended completion remains
+dependent on resolving the API discrepancy or supplying a matching native export.

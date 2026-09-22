@@ -1,9 +1,13 @@
 name: Biweekly payroll reports
 on:
   schedule:
-    # Pacific 08:00 in either DST season, plus a catch-up attempt. Python gates
-    # alternate Tuesdays; delivery receipts suppress duplicates.
-    - cron: '0 15,16,18 * * 2'
+    # Start at 08:00 Pacific, including DST. Python gates alternate Tuesdays
+    # from September 22, 2026; delivery receipts suppress duplicate mail.
+    - cron: '0 8 * * 2'
+      timezone: America/Los_Angeles
+    # Off-the-hour retries if GitHub delays/drops a trigger or a source fails.
+    - cron: '20 8,9,11 * * 2'
+      timezone: America/Los_Angeles
   workflow_dispatch:
     inputs:
       start_date:
@@ -75,6 +79,12 @@ jobs:
           if [ -n "$START_DATE" ]; then args+=(--start "$START_DATE"); fi
           if [ -n "$END_DATE" ]; then args+=(--end "$END_DATE"); fi
           python 'tips & payroll/payroll_run.py' "${args[@]}"
+      - name: Explain an incomplete payroll run
+        if: failure() && steps.gate.outputs.run == 'true'
+        shell: bash
+        run: |
+          echo 'Payroll did not complete. Inspect the private readiness report and TCP corrections CSV below. Do not treat a failed run as a delivered payroll.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'If TCP returned closed shifts with zero calculated hours, reconcile a matching Complete Payroll OpenXML export using the payroll runbook. Never replace missing hours with zero or estimate overtime.' >> "$GITHUB_STEP_SUMMARY"
       - name: Keep private payroll reports briefly
         if: always() && steps.gate.outputs.run == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
