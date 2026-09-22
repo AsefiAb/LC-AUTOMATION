@@ -4,8 +4,9 @@ GitHub Actions **Biweekly payroll reports** connects Gateway Financial View tips
 and TCP calculated hours. The pipeline writes 18 store workbooks and three
 separate regional totals workbooks, each containing one worksheet. Alicia gets
 three emails, each with its regional totals and matching store files. Each body
-lists that region's combined managers and full employee list. It does not access
-or import into ADP.
+contains a short greeting, period, and regional regular hours, overtime hours,
+total hours and tips. Employee details stay in the attached Excel files. It does
+not access or import into ADP.
 
 The separate [ADP CSV builder](ADP-EXPORT.md) prepares the original regional
 import format once fresh exports, verified employee mappings and final payroll
@@ -66,9 +67,11 @@ Examples: `3356-01 9.8.26-9.21.26.xlsx`, then
 Gateway uses the same inclusive dates. TCP shifts belong to their start date;
 overnight shifts starting within the period are included in full.
 
-From **ab@caazllc.com**, to **alicia@lccollc.com**. Each email shows managers combined
-across stores within its region, followed by everyone in that region, with hours and tips.
-Managers in both views are counted once in overall totals.
+From **ab@caazllc.com**, to **alicia@lccollc.com**. Each email gives only the short
+regional summary. The attached regional Excel file combines every person's hours
+and tips across stores within the region, including managers. Each person counts
+once. A brief note is included only while a zero-hour, unassigned person has no
+home store and therefore cannot appear in a regional file.
 
 ## Run and activate
 

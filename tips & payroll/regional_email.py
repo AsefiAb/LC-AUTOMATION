@@ -14,11 +14,6 @@ def regional_filename(region, dates):
     return f'{REGIONS[region][0]} TIPS {date_label(dates)}.xlsx'
 
 
-def employee_lines(people):
-    return '\n'.join(f'{p["first_name"]} {p["last_name"]} ({p["geid"]}) — {p["job_title"]}: '
-                     f'Reg {p["regular_hours"]} | OT {p["overtime_hours"]} | Tips ${p["tips"]}' for p in people) or 'None.'
-
-
 def build_region_messages(summary, sources):
     label = date_label(summary['period'])
     grouped = regional_people(summary)
@@ -41,16 +36,17 @@ def build_region_messages(summary, sources):
         message['Message-ID'] = f'<payroll-{code}-{summary["period"]["start_date"]}-{summary["period"]["end_date"]}@caazllc.com>'
         body = (f'Hi Alicia,\n\nAttached are the {name} tips and payroll reports for {label}.\n\n'
                 f'Regular hours: {totals["regular_hours"]}\nOvertime hours: {totals["overtime_hours"]}\n'
-                f'Total hours: {totals["total_hours"]}\nTotal tips: ${totals["tips"]}\n\n'
-                'The regional totals file has one worksheet listing each person once. Individual store files are also attached. '
-                'Hours are decimals. Tips stay within the store where they were earned and go only to crew and crew leaders. '
-                'Managers, co-managers and assistant managers receive no tips.\n\n'
-                'Managers — combined within this region\n' + employee_lines([p for p in people if p['management']]) + '\n\n'
-                'All employees and managers\n' + employee_lines(people) + '\n\n'
-                'Managers listed above are also in the full employee list. Count each person once.\n')
-        if summary.get('warnings'):
-            body += '\nRoster setup notes: ' + '. '.join(summary['warnings']) + '.\n'
-        message.set_content(body + '\nThanks,\nAB\n')
+                f'Total hours: {totals["total_hours"]}\nTotal tips: ${totals["tips"]}\n')
+        # Keep employee details in the Excel attachments. Mention an unmapped
+        # zero-hour person only while the actual roster still has that issue.
+        for person in summary['employees']:
+            if (not person.get('stores') and person.get('job_title') == 'UNASSIGNED'
+                    and cents(person['total_hours'], 'hours') == 0 and cents(person['tips'], 'tips') == 0):
+                body += (f'\n{person["first_name"]} {person["last_name"]} ({person["geid"]}) '
+                         'has no home store or assigned role in TCP and no worked hours or tips. '
+                         'This person is retained in the overall roster but cannot be assigned to a region '
+                         'until their home store is confirmed.\n')
+        message.set_content(body)
         for filename in expected:
             spec = files[filename]
             content = Path(spec['path']).read_bytes()
