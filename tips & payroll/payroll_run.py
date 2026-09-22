@@ -19,7 +19,7 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from allocate_tips import allocate, MANAGEMENT
 import gateway
 from payroll_email_summary import (roles, LABELS, FIELDS, date_label, read_store_workbooks,
-                                   summarize_rows, build_message, COLUMNS, display)
+                                   summarize_rows, build_message, COLUMNS, display, regional_people)
 from summarize_inspection import summarize, store_label
 from tcp_inspect import TCP
 
@@ -278,6 +278,22 @@ def prepare(gateway_data, payroll, output):
     summary = summarize_rows(manifest, source_rows)
     combined = Workbook()
     combined.remove(combined.active)
+    regional_columns = [('GEID', 'geid'), ('Payroll ID', 'payroll_ids'), ('First Name', 'first_name'),
+                        ('Last Name', 'last_name'), ('Job Title', 'job_title'), ('Total Hours', 'total_hours'),
+                        ('Tips', 'tips'), ('Reg Hours', 'regular_hours'), ('OT Hours', 'overtime_hours')]
+    for region, rows in regional_people(summary).items():
+        sheet = combined.create_sheet(region)
+        sheet.append([c[0] for c in regional_columns])
+        for row in rows:
+            sheet.append([Decimal(row[key]) if key in ('regular_hours', 'overtime_hours', 'total_hours', 'tips')
+                          else display(row, key) for _, key in regional_columns])
+        last = sheet.max_row
+        sheet.append(['TOTAL', '', '', '', '', *[f'=SUM({col}2:{col}{last})' if last > 1 else 0 for col in ('F', 'G', 'H', 'I')]])
+        style(sheet, [14, 13, 18, 20, 28, 14, 14, 14, 14])
+        # style() treats text as literal for injection protection; totals are
+        # trusted formulas and must be written after that pass.
+        for col in ('F', 'G', 'H', 'I'):
+            sheet[f'{col}{last + 1}'] = f'=SUM({col}2:{col}{last})' if last > 1 else 0
     for title, rows in (('All employees', summary['employees']), ('Managers', summary['managers'])):
         sheet = combined.create_sheet(title)
         sheet.append([c[0] for c in COLUMNS])

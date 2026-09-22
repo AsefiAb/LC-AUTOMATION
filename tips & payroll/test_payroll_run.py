@@ -58,6 +58,27 @@ class PayrollPipelineTests(unittest.TestCase):
             book = load_workbook(Path(folder) / '3356-01 8.25.26-9.7.26.xlsx')
             self.assertTrue(any(c.value == '=No' and c.data_type == 's' for row in book['Payroll'] for c in row))
             book.close()
+            combined = load_workbook(Path(folder) / 'Combined payroll 8.25.26-9.7.26.xlsx')
+            self.assertEqual(combined.sheetnames[:3], ['3910', '3759', '3356'])
+            self.assertEqual([c.value for c in combined['3356'][1]], p.FIELDS)
+            self.assertNotIn('Stores worked', [c.value for c in combined['3356'][1]])
+            manager = next(row for row in combined['3356'].iter_rows(values_only=True) if row[0] == '102')
+            self.assertEqual(manager[5:9], (85.92, 0, 78.22, 7.7))
+            combined.close()
+
+    def test_regional_people_does_not_mix_cross_region_hours_or_tips(self):
+        from payroll_email_summary import regional_people
+        summary = {'employees': [{'geid': '101', 'first_name': 'Test', 'last_name': 'Person',
+                                 'job_title': 'CREW', 'regular_hours': '60.00', 'tips': '100.00'}],
+                   'source_rows': [
+                       {'geid': '101', 'store': '3356-01', 'regular_hours': '10.00', 'overtime_hours': '1.00', 'tips': '25.00'},
+                       {'geid': '101', 'store': '3356-02', 'regular_hours': '20.00', 'overtime_hours': '2.00', 'tips': '15.00'},
+                       {'geid': '101', 'store': '3910-01', 'regular_hours': '30.00', 'overtime_hours': '0.00', 'tips': '60.00'}]}
+        regions = regional_people(summary)
+        self.assertEqual(len(regions['3356']), 1)
+        self.assertEqual((regions['3356'][0]['regular_hours'], regions['3356'][0]['overtime_hours'], regions['3356'][0]['tips']), ('30.00', '3.00', '40.00'))
+        self.assertEqual((regions['3910'][0]['total_hours'], regions['3910'][0]['tips']), ('30.00', '60.00'))
+        self.assertEqual(regions['3759'], [])
 
     def fixture(self):
         employee = {'employeeId': 101, 'firstName': 'Crew', 'lastName': 'Leader', 'location': '03356-00001'}

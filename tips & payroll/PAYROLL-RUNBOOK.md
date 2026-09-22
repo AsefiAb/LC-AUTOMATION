@@ -2,7 +2,8 @@
 
 GitHub Actions **Biweekly payroll reports** connects Gateway Financial View tips
 and TCP calculated hours. The pipeline writes 18 store workbooks, a combined
-workbook with All employees and Managers sheets, and Alicia's email with both
+workbook beginning with regional person totals for 3910, 3759 and 3356, followed
+by All employees and Managers sheets, and Alicia's email with both
 tables and all workbooks attached. It does not access or import into ADP.
 
 The separate [ADP CSV builder](ADP-EXPORT.md) prepares the original regional
@@ -36,6 +37,9 @@ No Microsoft or ADP credentials are required for payroll reports.
   Leave is excluded. Do not recalculate OT from an 80-hour two-week threshold.
 - Group managers and the full employee list by GEID across stores. Names alone
   are not identifiers. Blank Payroll IDs remain blank while ADP is on hold.
+- Regional sheets list each person once per region, with their regional regular,
+  overtime and tip totals and no store-number column. Existing store allocations
+  are summed; tips are never redistributed across stores or regions.
 - Include the current TCP roster and people with worked hours during the period.
   People with no worked shifts and no role remain UNASSIGNED at zero hours/tips,
   with a setup warning; without a home store they appear in the combined roster.

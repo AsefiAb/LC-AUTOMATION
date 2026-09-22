@@ -147,6 +147,31 @@ def date_label(dates):
     return f'{short(dates["start_date"])}-{short(dates["end_date"])}'
 
 
+def regional_people(summary):
+    """One person per region; retain store-specific allocations in the totals."""
+    people = {p['geid']: p for p in summary['employees']}
+    regions = {region: {} for region in ('3910', '3759', '3356')}
+    for source in summary['source_rows']:
+        region = store_id(source['store']).split('-')[0]
+        if region not in regions:
+            raise ValueError('Unknown payroll region')
+        eid = source['geid']
+        row = regions[region].setdefault(eid, {'person': people[eid], 'regular': 0, 'overtime': 0, 'tips': 0})
+        for target, key in (('regular', 'regular_hours'), ('overtime', 'overtime_hours'), ('tips', 'tips')):
+            row[target] += cents(source[key], key)
+    result = {}
+    for region, grouped in regions.items():
+        rows = []
+        for row in grouped.values():
+            p = row['person']
+            rows.append({**p, 'regular_hours': decimal_text(row['regular']),
+                         'overtime_hours': decimal_text(row['overtime']),
+                         'total_hours': decimal_text(row['regular'] + row['overtime']),
+                         'tips': decimal_text(row['tips'])})
+        result[region] = sorted(rows, key=lambda p: (p['last_name'].casefold(), p['first_name'].casefold(), p['geid']))
+    return result
+
+
 def read_store_workbooks(manifest, directory):
     dates = period(manifest)
     expected = {store_id(s) for s in manifest['expected_stores']}
