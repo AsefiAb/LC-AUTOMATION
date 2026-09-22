@@ -1,10 +1,11 @@
 # Payroll reporting without ADP
 
 GitHub Actions **Biweekly payroll reports** connects Gateway Financial View tips
-and TCP calculated hours. The pipeline writes 18 store workbooks, a combined
-workbook beginning with regional person totals for 3910, 3759 and 3356, followed
-by All employees and Managers sheets, and Alicia's email with both
-tables and all workbooks attached. It does not access or import into ADP.
+and TCP calculated hours. The pipeline writes 18 store workbooks and three
+separate regional totals workbooks, each containing one worksheet. Alicia gets
+three emails, each with its regional totals and matching store files. Each body
+lists that region's combined managers and full employee list. It does not access
+or import into ADP.
 
 The separate [ADP CSV builder](ADP-EXPORT.md) prepares the original regional
 import format once fresh exports, verified employee mappings and final payroll
@@ -42,7 +43,8 @@ No Microsoft or ADP credentials are required for payroll reports.
   are summed; tips are never redistributed across stores or regions.
 - Include the current TCP roster and people with worked hours during the period.
   People with no worked shifts and no role remain UNASSIGNED at zero hours/tips,
-  with a setup warning; without a home store they appear in the combined roster.
+  with a setup warning; without a home store they remain in the private combined
+  roster and email setup notes instead of being assigned to an arbitrary region.
   Unknown roles on worked shifts, missing names or worked-store mappings, open
   punches, unmatched segments and elapsed shifts with zero calculated hours stop
   delivery and appear in a private issue report.
@@ -64,15 +66,15 @@ Examples: `3356-01 9.8.26-9.21.26.xlsx`, then
 Gateway uses the same inclusive dates. TCP shifts belong to their start date;
 overnight shifts starting within the period are included in full.
 
-From **ab@caazllc.com**, to **alicia@lccollc.com**. The email shows managers combined
-across stores, followed by everyone, with regular hours, OT, total hours and tips.
+From **ab@caazllc.com**, to **alicia@lccollc.com**. Each email shows managers combined
+across stores within its region, followed by everyone in that region, with hours and tips.
 Managers in both views are counted once in overall totals.
 
 ## Run and activate
 
 1. Use `preflight` to check live TCP/Gateway without email. Blank dates choose the
    latest completed scheduled period; manual dates must be a completed 14 days.
-2. Use `preview` to create all workbooks and email HTML privately, without sending.
+2. Use `preview` to create all workbooks and three plain-text email files privately, without sending.
 3. After the replacement reconciles, disable the old tips-yolo workflow for the
    controlled cutover and run `deliver`. Confirm receipt before archiving the old
    repo. Keep it for rollback if any stage fails.

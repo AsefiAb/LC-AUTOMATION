@@ -11,9 +11,9 @@ remain source references and rollback copies until the cutover is verified.
 
 | Area | Verified | Still needed |
 | --- | --- | --- |
-| Payroll tips | September 8–21 Gateway totals for all 18 stores; formula-based Excel verified for every employee allocation; crew and Crew Leaders only, with tips kept in each store | Prepared reports have not yet been emailed |
+| Payroll tips | September 8–21 Gateway totals for all 18 stores; 18 store Excel files and 3 separate single-worksheet regional totals files checked employee by employee; crew and Crew Leaders only, with tips kept in each store | All three regional email packages are ready but not yet sent |
 | TCP hours | Fresh full-period native export matched all 2,325 API shifts and restored 280 calculated splits; 424 period-roster people retained | API still returns those zero splits after generating the report; a native export remains necessary for this discrepancy |
-| Email | Gmail authentication succeeded; payroll Excel attachments and combined employee/manager email prepared privately | Send and verify the prepared catch-up payroll; sales is still blocked by its data source |
+| Email | Gmail authentication previously succeeded; three dated TX/AZ/CO messages prepared with 5/8/8 matching Excel attachments; separate regional duplicate-send receipts implemented | Temporary-runner setup was blocked by automatic approval review before execution. Browser fallback needs sign-in as ab@caazllc.com; no September 8–21 payroll email has been sent |
 | OneDrive | All three workbooks downloaded successfully; Colorado store headers corrected; date/store layout checks passed | No additional Microsoft secrets needed |
 | Sales | Replacement code, requested plain-text email layout and tests; Gmail and existing workbook connections | Altametrics still requests interactive verification. The old workflow updated workbooks but its Gmail send failed despite a green run. |
 | ADP | Regional CSV builder exists; no import performed | Owner is handling imports; ADP integration is on hold |
@@ -31,8 +31,7 @@ included with zero hours and tips and explicit setup notes. Eleven people
 terminated before the period with no worked shifts are listed separately for
 roster completeness. No timecards or personnel assignments were edited.
 
-Validation: 56 payroll tests passed, plus the additional cross-store crew
-allocation regression test; all 18 Excel tip pools reconcile to Gateway and all
+Validation: 62 payroll tests passed; all 18 Excel tip pools reconcile to Gateway and all
 employee Excel calculations match the independent allocation. The earlier 23 sales tests passed locally. Sales live check
 [35542323649](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35542323649)
 confirmed Gmail and all three workbook connections and stopped at Altametrics
