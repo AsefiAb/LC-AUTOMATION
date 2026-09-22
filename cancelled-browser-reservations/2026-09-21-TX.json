@@ -1,0 +1,9 @@
+{
+  "status": "cancelled_unsent",
+  "recipient": "alicia@lccollc.com",
+  "reserved_at": "2026-09-22T20:00:41.7227997Z",
+  "date": "2026-09-21",
+  "subject": "TX TIPS 9.8.26-9.21.26",
+  "source": "gmail-browser",
+  "resolution": "Gmail Sent search on September 22 returned no matches for Alicia payroll tips since September 21. Browser draft remains unsent. Owner requested delivery through GitHub."
+}
