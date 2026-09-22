@@ -15,7 +15,7 @@ from pathlib import Path
 
 NS = '{urn:schemas-microsoft-com:office:spreadsheet}'
 PERIOD = re.compile(r'For the period of (\d+/\d+/\d{4}) to (\d+/\d+/\d{4})')
-PERSON = re.compile(r'Name: (.*?)\s+Number: (\d+)')
+PERSON = re.compile(r'Name: (.*?)\s+Number: (\d+)(?:\s+Export Code: (\S+))?')
 DAYS = {'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'}
 HOUR_KEYS = ('regular', 'overtime1', 'overtime2')
 
@@ -106,12 +106,12 @@ def read_export(path):
             raise ValueError('Invalid export period')
         time_in = punch(row[3], row[4], first, last)
         time_out = punch(row[5], row[6], date.fromisoformat(time_in[:10]), last + timedelta(days=1))
-        if time_out <= time_in or not row[7].isdigit():
+        if time_out < time_in or not row[7].isdigit():
             raise ValueError('Invalid native shift punch or job code')
         values = tuple(duration(row[columns[key]]) for key in ['Reg', 'Ovt1', 'Ovt2'])
         if any(duration(row[columns[key]]) for key in ['Comp Reg', 'Comp OT1', 'Comp OT2']):
             raise ValueError('Comp time requires a separately verified mapping')
-        if sum(values) != duration(row[columns['Hours']]) or not sum(values):
+        if sum(values) != duration(row[columns['Hours']]) or (not sum(values) and time_out != time_in) or (sum(values) and time_out == time_in):
             raise ValueError('Native worked hours are zero or do not reconcile')
         key = (employee, row[7], time_in, time_out)
         if key in shifts:

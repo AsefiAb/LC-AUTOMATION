@@ -48,6 +48,17 @@ class AllocationTests(unittest.TestCase):
         result = allocate(*self.inputs(["1.00"] * 3, "1.00"))
         self.assertEqual([x["tips"] for x in result["employees"]], ["0.34", "0.33", "0.33"])
 
+    def test_shared_crew_member_uses_only_hours_from_each_store(self):
+        g, p = self.inputs(["10.00", "30.00"], "100.00")
+        g['stores'].append({'store': '3356-02', 'total_tips': '200.00'})
+        p['employees'] += [
+            {'employee_id': '0', 'store': '3356-02', 'roles': ['Crew'], 'total_hours': '30.00'},
+            {'employee_id': '2', 'store': '3356-02', 'roles': ['Crew Leader'], 'total_hours': '10.00'}]
+        result = allocate(g, p)
+        tips = {(r['store'], r['employee_id']): r['tips'] for r in result['employees']}
+        self.assertEqual(tips, {('3356-01', '0'): '25.00', ('3356-01', '1'): '75.00',
+                                ('3356-02', '0'): '150.00', ('3356-02', '2'): '50.00'})
+
     def test_mismatched_dates_and_unverified_data_block_export(self):
         g, p = self.inputs(["10.00"])
         bad = copy.deepcopy(p)

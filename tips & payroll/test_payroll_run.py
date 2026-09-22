@@ -76,7 +76,35 @@ class PayrollPipelineTests(unittest.TestCase):
             self.assertEqual(result['employees'][0]['total_hours'], '0.00')
             self.assertEqual(result['roster'][0]['roles'], ['crew leader'])
             report['datasets']['employeejobcodes']['records'] = []
-            self.assertFalse(p.normalize(report)['verified'])
+            result = p.normalize(report)
+            self.assertEqual(result['roster'][0]['roles'], ['unassigned'])
+            self.assertEqual(result['employees'][0]['total_hours'], '0.00')
+            self.assertTrue(result['warnings'])
+            report['datasets']['employees']['records'][0]['location'] = None
+            result = p.normalize(report)
+            self.assertEqual(len(result['roster']), 1)
+            self.assertEqual(result['employees'], [])
+
+    def test_unassigned_zero_people_retained_but_never_paid(self):
+        from allocate_tips import allocate
+        from payroll_email_summary import summarize_rows
+        dates = {'start_date': '2026-09-08', 'end_date': '2026-09-21'}
+        payroll = {'period': dates, 'verified': True, 'issues': [], 'employees': [
+            {'store': '3356-01', 'employee_id': '101', 'roles': ['unassigned'], 'total_hours': '0.00'}]}
+        tips = {'period': dates, 'verified': True, 'issues': [], 'stores': [{'store': '3356-01', 'total_tips': '0.00'}]}
+        result = allocate(tips, payroll)
+        self.assertFalse(result['employees'][0]['eligible'])
+        self.assertEqual(result['employees'][0]['tips'], '0.00')
+        payroll['employees'][0]['total_hours'] = '0.01'
+        with self.assertRaises(ValueError):
+            allocate(tips, payroll)
+        manifest = {'period': dates, 'verified': True, 'roster_verified': True, 'cross_store_ot_verified': True,
+                    'expected_stores': ['3356-01'], 'gateway_tips': {'3356-01': '0.00'}, 'roster': [
+                        {'geid': '101', 'first_name': 'No', 'last_name': 'Assignment', 'roles': ['unassigned']}]}
+        self.assertEqual(len(summarize_rows(manifest, [])['employees']), 1)
+        with self.assertRaisesRegex(ValueError, 'Unassigned employee has hours'):
+            summarize_rows(manifest, [{'store': '3356-01', 'geid': '101', 'first_name': 'No', 'last_name': 'Assignment',
+                'roles': ['unassigned'], 'regular_hours': '0.01', 'overtime_hours': '0.00', 'total_hours': '0.01', 'tips': '0.00'}])
 
     def test_unique_active_assignment_without_default(self):
         report = self.fixture()

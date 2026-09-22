@@ -85,19 +85,24 @@ def allocate(gateway, payroll):
         if not isinstance(raw_roles, list) or not raw_roles:
             raise ValueError(f"Missing role classification for employee {eid}.")
         roles = {str(role).strip().lower() for role in raw_roles}
+        hours = cents(row["total_hours"], "decimal hours")
+        # A roster-only person with no work can remain visible without guessing
+        # a tip-eligible title. Any worked hours still require classification.
         unknown = roles - CREW - MANAGEMENT
+        if roles == {"unassigned"} and hours == 0:
+            unknown = set()
         if unknown:
             raise ValueError(f"Unclassified role for employee {eid}: {', '.join(sorted(unknown))}")
         if roles & MANAGEMENT:
             manager_ids.add(eid)
         rows.append({"store": sid, "employee_id": eid, "name": str(row.get("name", "")),
-                     "roles": sorted(roles), "hours_cents": cents(row["total_hours"], "decimal hours")})
+                     "roles": sorted(roles), "hours_cents": hours})
 
     by_store = defaultdict(list)
     for row in rows:
         # The user excludes managers as people, including anyone appearing under
         # a management role elsewhere in the supplied payroll period.
-        row["eligible"] = row["employee_id"] not in manager_ids
+        row["eligible"] = row["employee_id"] not in manager_ids and bool(set(row["roles"]) & CREW)
         row["tip_cents"] = 0
         by_store[row["store"]].append(row)
 

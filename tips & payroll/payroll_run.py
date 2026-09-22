@@ -128,7 +128,7 @@ def normalize(report):
         eid = str(person['employeeId'])
         if eid in by_person and eid not in catalog:
             catalog[eid] = person
-    roster, employees = [], []
+    roster, employees, warnings = [], [], []
     for eid, person in sorted(catalog.items()):
         worked = by_person[eid]
         if not worked:
@@ -163,7 +163,10 @@ def normalize(report):
             for row in worked:
                 titles |= roles(row['roles'])
             if not titles:
-                raise ValueError('no verified default or worked job title')
+                if worked:
+                    raise ValueError('no verified default or worked job title')
+                titles = {'unassigned'}
+                warnings.append(f'GEID {eid}: no worked shifts; job title unassigned, retained with zero hours and tips')
             if not worked:
                 home = store_label(person.get('location'))
                 if home not in STORES:
@@ -174,7 +177,11 @@ def normalize(report):
                         home = assigned_stores.pop()
                 worked = [{'store': home, 'regular_minutes': 0, 'ot1_minutes': 0, 'ot2_minutes': 0}]
             if any(row['store'] not in STORES for row in worked):
-                raise ValueError('store could not be mapped')
+                if titles == {'unassigned'} and not by_person[eid]:
+                    warnings.append(f'GEID {eid}: no home store; retained in the combined roster only')
+                    worked = []
+                else:
+                    raise ValueError('store could not be mapped')
             roster.append({'geid': eid, 'first_name': person['firstName'], 'last_name': person['lastName'],
                            'roles': sorted(titles), 'payroll_ids': []})
             for row in worked:
@@ -193,7 +200,7 @@ def normalize(report):
     if not roster:
         issues.append('No complete roster was returned')
     return {'period': {'start_date': first, 'end_date': last}, 'verified': not issues, 'issues': issues,
-            'checks': checks, 'roster': roster, 'employees': employees}
+            'checks': checks, 'roster': roster, 'employees': employees, 'warnings': warnings}
 
 
 def style(sheet, widths):
@@ -232,7 +239,7 @@ def prepare(gateway_data, payroll, output):
     manifest = {'period': payroll['period'], 'verified': True, 'roster_verified': True,
                 'cross_store_ot_verified': True, 'issues': [], 'expected_stores': STORES,
                 'gateway_tips': {r['store']: r['gateway_tips'] for r in allocation['stores']},
-                'roster': payroll['roster'], 'workbooks': [],
+                'roster': payroll['roster'], 'workbooks': [], 'warnings': payroll.get('warnings', []),
                 'ot_basis': 'Sum TCP calculated overtime1 and overtime2, preserving classification across stores'}
     label = date_label(payroll['period'])
     for store in allocation['stores']:

@@ -19,6 +19,7 @@ from allocate_tips import MANAGEMENT, cents, decimal_text, period, store_id
 
 
 ROLE_NAMES = {
+    'unassigned': 'unassigned',
     'crew': 'crew', 'crew member': 'crew member', 'crew leader': 'crew leader',
     'manager': 'manager', 'mgr': 'manager', 'general manager': 'manager',
     'co-manager': 'co-manager', 'co manager': 'co-manager', 'co mgr': 'co-manager', 'comanager': 'co-manager',
@@ -26,7 +27,7 @@ ROLE_NAMES = {
     'asst manager': 'assistant manager', 'asst mgr': 'assistant manager',
 }
 LABELS = {'crew': 'CREW', 'crew member': 'CREW', 'crew leader': 'CREW LEADER', 'manager': 'MANAGER',
-          'co-manager': 'CO-MANAGER', 'assistant manager': 'ASST MGR'}
+          'co-manager': 'CO-MANAGER', 'assistant manager': 'ASST MGR', 'unassigned': 'UNASSIGNED'}
 FIELDS = ['GEID', 'Payroll ID', 'First Name', 'Last Name', 'Job Title', 'Total Hours', 'Tips', 'Reg Hours', 'OT Hours']
 ALIASES = {'regular hours': 'Reg Hours', 'reg hours': 'Reg Hours', 'overtime hours': 'OT Hours', 'ot hours': 'OT Hours'}
 
@@ -121,6 +122,8 @@ def summarize_rows(manifest, source_rows):
     result = []
     for person in sorted(people.values(), key=lambda p: (p['last_name'].casefold(), p['first_name'].casefold(), p['geid'])):
         management = bool(person['roles'] & MANAGEMENT)
+        if 'unassigned' in person['roles'] and (person['regular'] or person['overtime'] or person['tips']):
+            raise ValueError(f'Unassigned employee has hours or tips: GEID {person["geid"]}')
         if management and person['tips']:
             raise ValueError(f'Manager received tips under one or more stores: GEID {person["geid"]}')
         result.append({
@@ -133,7 +136,7 @@ def summarize_rows(manifest, source_rows):
         })
     total = {field: decimal_text(sum(cents(row[field], field) for row in result))
              for field in ('regular_hours', 'overtime_hours', 'total_hours', 'tips')}
-    return {'period': dates, 'employees': result, 'managers': [r for r in result if r['management']],
+    return {'period': dates, 'employees': result, 'managers': [r for r in result if r['management']], 'warnings': manifest.get('warnings', []),
             'totals': total, 'source_rows': detail, 'stores': expected}
 
 
@@ -248,6 +251,8 @@ def build_message(summary, sources):
     message['Subject'] = f'Payroll {label} — combined employee hours and tips'
     note = ('Hours are decimal hours. Each person appears once in the full list, with hours and tips combined across stores. '
             'Managers receive no tips. Overtime is the verified TCP classification; it is not recalculated from the two-week total.')
+    if summary.get('warnings'):
+        note += ' Setup notes: ' + '. '.join(summary['warnings']) + '.'
     message.set_content(f'Payroll {label}\n\n{note}\n\nManagers across stores\n{csv_text(summary["managers"])}\nAll employees and managers\n{csv_text(summary["employees"])}')
     totals = summary['totals']
     total_line = (f'Regular hours: {totals["regular_hours"]}; overtime hours: {totals["overtime_hours"]}; '

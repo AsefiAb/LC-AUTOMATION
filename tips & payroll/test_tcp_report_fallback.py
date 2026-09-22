@@ -49,6 +49,22 @@ class NativeFallbackTests(unittest.TestCase):
         second = apply_export(first, self.path)
         self.assertEqual(second['native_export_reconciliation'][-1]['replacements'], [])
 
+    def test_equal_punch_zero_marker_matches_but_elapsed_zero_rejected(self):
+        self.shift[6] = self.shift[4]
+        self.shift[10:14] = ['0:00'] * 4
+        self.report['datasets']['hours']['records'][0]['segments'][0]['timeOut'] = '2026-09-14T05:58:00'
+        self.write()
+        self.assertEqual(apply_export(self.report, self.path)['native_export_reconciliation'][0]['replacements'], [])
+        self.shift[6] = '06:58 AM'
+        self.write()
+        with self.assertRaises(ValueError):
+            read_export(self.path)
+
+    def test_optional_export_code_does_not_change_identity(self):
+        text = self.path.read_text().replace('Number: 101', 'Number: 101     Export Code: 123')
+        self.path.write_text(text)
+        self.assertEqual(apply_export(self.report, self.path)['native_export_reconciliation'][0]['matched_shifts'], 1)
+
     def test_wrong_employee_job_or_punch_rejected(self):
         for change in ({'timeIn': '2026-09-14T05:59:00'}, {'timeOut': None}, {'jobCode': {'jobCodeId': 124}}):
             report = copy.deepcopy(self.report)

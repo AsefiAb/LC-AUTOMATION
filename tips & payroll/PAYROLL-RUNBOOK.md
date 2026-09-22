@@ -143,3 +143,22 @@ September 8–21 cannot be finalized until September 22; obtain fresh sources af
 the period closes and after any corrections.
 
 Run tests: `python -m unittest discover -s "tips & payroll" -p "test_*.py" -v`.
+
+## September 22 reconciliation
+
+The completed September 8–21 period was reconciled against a fresh full-period
+Complete Payroll OpenXML export. All 2,325 worked shift records matched exact
+GEIDs, job codes and punch times. The export restored 280 zero API calculation
+splits, with every existing nonzero split agreeing. Equal-punch zero-duration
+markers are retained only when both sources match; positive-duration zero hours
+still block payroll. Native employee headers may include an optional Export Code;
+that field is not assumed to be a verified payroll-system ID.
+
+Roster-only people with no worked shifts can now remain visible as UNASSIGNED,
+at zero hours and tips, with setup warnings. A person without a mapped home store
+appears in the combined roster. Any worked hours for an unassigned title still
+block allocation and email. Managers remain excluded across all stores.
+
+The dated Excel outputs and source audits remain private under `reports/`.
+This completed manual reconciliation does not resolve the unattended TCP API
+discrepancy or turn on delivery. No ADP import is needed to prepare these reports.
