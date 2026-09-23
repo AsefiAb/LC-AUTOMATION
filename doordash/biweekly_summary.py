@@ -25,11 +25,16 @@ def schedule_due(now):
     return local.date() >= ANCHOR and (local.date() - ANCHOR).days % 14 == 0 and local.hour >= 8
 
 
-def summarize(ledger, receipts, now):
+def summarize(ledger, receipts, now, tracker_snapshot=None):
     start, end = period(now)
     if any(r.get('status') == 'sending' and 'ab_summary' in r for r in receipts.values()):
         raise ValueError('An earlier savings email has an uncertain outcome; reconcile it before calculating the next AB share.')
     eligible, issues = [], []
+    if tracker_snapshot:
+        for name in tracker_snapshot['platforms']:
+            if name != 'DoorDash':
+                issues.append({'key': 'platform:' + name, 'store': name,
+                    'reason': f'Only the historical tracker snapshot ({tracker_snapshot["generated_at"]}) is available. Current dated refunds are required; this platform must not be silently omitted or billed again.'})
     for key, row in ledger['orders'].items():
         if row['status'] in ('observed', 'uncertain', 'submitting'):
             issues.append({'key': key, 'store': row['store'], 'reason': 'Historical outcome needs verification.'})
@@ -65,8 +70,10 @@ def main():
         print('true' if schedule_due(now) else 'false')
         return
     data = Path(os.environ['DOORDASH_DATA_DIR'])
+    snapshot_file = data / 'tracker-snapshot.json'
     summary = summarize(json.loads((data / 'ledger.json').read_text()),
-        {p.stem: json.loads(p.read_text()) for p in (data / 'email-receipts').glob('*.json')}, now)
+        {p.stem: json.loads(p.read_text()) for p in (data / 'email-receipts').glob('*.json')}, now,
+        json.loads(snapshot_file.read_text()) if snapshot_file.exists() else None)
     out = Path(__file__).parent / 'reports' / 'biweekly-summary.json'
     out.parent.mkdir(exist_ok=True)
     out.write_text(json.dumps(summary, indent=2), encoding='utf-8')

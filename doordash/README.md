@@ -20,6 +20,23 @@ Browser login is held only in encrypted `DOORDASH_STORAGE_STATE` GitHub secret.
 
 ## Requested email and calculation
 
+The supplied `DisputeTracker.xlsx` is retained as a separate historical multi-platform
+snapshot. Its accounts, all store rows and weekly totals are reconciled during import.
+The combined Uber subtotal is excluded when summing its two accounts. Additional
+platforms in the same source format are retained rather than silently filtered out.
+`All platform totals` and `Historical platform stores` appear in generated reports.
+Snapshot recoveries are never added to overlapping live order recoveries.
+
+The snapshot is not a complete dated refund export. Uber account 1 returned zero
+stores, and the original Grubhub adapter could not verify refund outcomes. Historical
+weekly aggregates cannot be split accurately across Tuesday payroll boundaries.
+Fresh dated Uber/Grubhub data is required before a complete multi-platform earnings
+email can be sent. Importing this workbook does not unblock the cloud login or schedule.
+
+To refresh the retained source, use the read-only importer `tracker_snapshot.py`
+with the source XLSX and an output JSON path (`openpyxl` is required for extraction).
+The snapshot is stored only in private report data and the private state branch.
+
 - From **ab@caazllc.com** to **carter@franbiznetwork.com** and **alicia@lccollc.com**.
 - Subject: **This week's dispute savings** (the owner's requested subject).
 - Every 14 days, Tuesday at 08:00 America/Los_Angeles, anchored September 22, 2026.

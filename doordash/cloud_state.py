@@ -32,6 +32,8 @@ def restore():
     data = data_dir()
     data.mkdir(parents=True, exist_ok=True)
     (data / 'ledger.json').write_text(json.dumps(saved['ledger']), encoding='utf-8')
+    if saved.get('tracker_snapshot'):
+        (data / 'tracker-snapshot.json').write_text(json.dumps(saved['tracker_snapshot']), encoding='utf-8')
     for day, receipt in saved.get('email_receipts', {}).items():
         from datetime import date
         if date.fromisoformat(day).isoformat() != day:
@@ -48,6 +50,8 @@ def persist():
     sha = (data / 'cloud-sha').read_text(encoding='ascii')
     saved = {'version': 1, 'ledger': json.loads((data / 'ledger.json').read_text(encoding='utf-8')),
              'email_receipts': {p.stem: json.loads(p.read_text(encoding='utf-8')) for p in (data / 'email-receipts').glob('*.json')}}
+    snapshot = data / 'tracker-snapshot.json'
+    if snapshot.exists(): saved['tracker_snapshot'] = json.loads(snapshot.read_text(encoding='utf-8'))
     result = request('PUT', '/contents/state.json', json={'branch': BRANCH, 'sha': sha,
         'message': 'Checkpoint DoorDash history and delivery receipts',
         'content': base64.b64encode(json.dumps(saved).encode()).decode()})

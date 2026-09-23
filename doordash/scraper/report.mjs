@@ -4,8 +4,34 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readLedger, totals } from './state.mjs';
 
-export function buildReport(ledger, abSummary = null, reviewPlan = null) {
+export function buildReport(ledger, abSummary = null, reviewPlan = null, trackerSnapshot = null) {
   const wb = new ExcelJS.Workbook();
+  if (trackerSnapshot) {
+    const all = wb.addWorksheet('All platform totals');
+    all.addRow(['Reported platform totals']);
+    all.addRow(['Historical source', trackerSnapshot.source_name, trackerSnapshot.generated_at]);
+    all.addRow(['Historical figures are not added to live DoorDash totals. Fresh multi-platform refunds are still required.']);
+    all.addRow(['Platform', 'Reported recovered ($)', 'Approved (#)', 'Denied (#)', 'Pending (#)', 'AB share example ($)']);
+    for (const [platform, value] of Object.entries(trackerSnapshot.platforms)) {
+      const i = all.rowCount + 1;
+      all.addRow([platform, value.recovered_cents / 100, value.approved_count, value.denied_count, value.pending_count,
+        { formula: `ROUND(B${i}*15%,2)`, result: Math.round(value.recovered_cents * .15) / 100 }]);
+    }
+    const last = all.rowCount;
+    all.addRow(['TOTAL', { formula: `SUM(B5:B${last})`, result: trackerSnapshot.reported_recovered_cents / 100 },
+      ...['C','D','E'].map(c => ({ formula: `SUM(${c}5:${c}${last})` })),
+      { formula: `ROUND(B${last+1}*15%,2)`, result: trackerSnapshot.illustrative_ab_cut_cents / 100 }]);
+    all.addRow(['The 15% illustration is not a verified invoice. Partial refunds and missing account coverage must be reconciled.']);
+    for (const issue of trackerSnapshot.issues) all.addRow([issue]);
+    all.columns.forEach(c => { c.width = 24; }); all.getColumn(1).width = 60;
+    all.getColumn(2).numFmt = '$#,##0.00'; all.getColumn(6).numFmt = '$#,##0.00';
+    all.getRow(4).font = { bold: true }; all.getRow(4).alignment = { wrapText: true }; all.getRow(4).height = 32;
+    const sourceStores = wb.addWorksheet('Historical platform stores');
+    sourceStores.addRow(['Platform', 'Account', 'Store', 'Recovered ($)', 'Approved (#)', 'Denied (#)', 'Pending (#)', 'Source timestamp']);
+    for (const r of trackerSnapshot.stores) sourceStores.addRow([r.platform, r.account, r.store, r.recovered_cents / 100, r.approved_count, r.denied_count, r.pending_count, trackerSnapshot.generated_at]);
+    sourceStores.columns.forEach(c => { c.width = 24; }); sourceStores.getColumn(3).width = 55;
+    sourceStores.getColumn(4).numFmt = '$#,##0.00'; sourceStores.getRow(1).font = { bold: true };
+  }
   if (abSummary) {
     const sheet = wb.addWorksheet('Dispute savings');
     sheet.addRow(['DoorDash dispute savings', `${abSummary.period_start} to ${abSummary.period_end}`]);
@@ -79,7 +105,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   fs.mkdirSync(path.dirname(out), { recursive: true });
   const summaryPath = path.join(root, 'reports', 'biweekly-summary.json');
   const reviewPath = path.join(data, 'review-plan.json');
+  const snapshotPath = path.join(data, 'tracker-snapshot.json');
   await buildReport(ledger, fs.existsSync(summaryPath) ? JSON.parse(fs.readFileSync(summaryPath)) : null,
-    fs.existsSync(reviewPath) ? JSON.parse(fs.readFileSync(reviewPath)) : null).xlsx.writeFile(out);
+    fs.existsSync(reviewPath) ? JSON.parse(fs.readFileSync(reviewPath)) : null,
+    fs.existsSync(snapshotPath) ? JSON.parse(fs.readFileSync(snapshotPath)) : null).xlsx.writeFile(out);
   console.log(`Saved ${out}`);
 }

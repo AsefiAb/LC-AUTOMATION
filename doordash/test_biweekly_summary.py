@@ -39,3 +39,9 @@ class SavingsTests(unittest.TestCase):
     def test_uncertain_previous_email_blocks_a_second_bill(self):
         with self.assertRaisesRegex(ValueError, 'uncertain'):
             summarize({'orders': {}}, {'2026-09-21': {'status': 'sending', 'ab_summary': {}}}, self.now('2026-10-06T08:00'))
+
+    def test_other_platforms_are_not_silently_omitted_or_added_as_new_recoveries(self):
+        snapshot = {'platforms': {'DoorDash': {}, 'Uber Eats': {}, 'Grubhub': {}}, 'generated_at': '2026-09-21'}
+        result = summarize({'orders': {}}, {}, self.now('2026-10-06T08:00'), snapshot)
+        self.assertEqual(result['cumulative_savings_cents'], 0)
+        self.assertEqual({i['store'] for i in result['issues']}, {'Uber Eats', 'Grubhub'})

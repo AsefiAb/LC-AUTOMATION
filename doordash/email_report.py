@@ -30,7 +30,7 @@ def build_message(config, attachment, now, summary=None):
     if summary:
         money = lambda cents: f'${cents / 100:,.2f}'
         body = ('Hi Carter and Alicia,\n\n'
-                f"Attached is the DoorDash dispute savings report for {summary['period_start']}–{summary['period_end']}.\n\n"
+                f"Attached is the dispute savings report for {summary['period_start']}–{summary['period_end']}.\n\n"
                 f"{'Total historical' if summary['first_email'] else 'Newly verified'} dispute savings: {money(summary['newly_verified_savings_cents'])}\n"
                 f"AB Cut: {money(summary['ab_cut_cents'])} (15%)\n")
         if summary['first_email']:

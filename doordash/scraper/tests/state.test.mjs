@@ -86,3 +86,16 @@ test('savings workbook separates partial refunds from full disputed charges and 
   assert.ok(wb.getWorksheet('Evidence review'));
   assert.ok(wb.getWorksheet('Issues'));
 });
+
+test('multi-platform snapshot is retained separately from overlapping live DoorDash orders', () => {
+  const metric = recovered_cents => ({ recovered_cents, approved_count: 1, denied_count: 0, pending_count: 0 });
+  const snapshot = { source_name: 'DisputeTracker.xlsx', generated_at: '2026-09-21',
+    platforms: { DoorDash: metric(1000), 'Uber Eats': metric(2000), Grubhub: metric(0) },
+    reported_recovered_cents: 3000, illustrative_ab_cut_cents: 450, issues: ['Historical snapshot only'],
+    stores: [{ platform: 'Uber Eats', account: 'Uber Eats account 2', store: 'Store 2', ...metric(2000) }] };
+  const wb = buildReport({ version: 1, orders: { [row.key]: { ...row, status: 'approved', approvedAmountCents: 4000 } } }, null, null, snapshot);
+  assert.equal(wb.getWorksheet('All platform totals').getCell('B5').value, 10);
+  assert.equal(wb.getWorksheet('All platform totals').getCell('B8').value.result, 30);
+  assert.equal(wb.getWorksheet('Historical platform stores').rowCount, 2);
+  assert.equal(wb.getWorksheet('By store').getCell('H2').value, 40);
+});

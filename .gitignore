@@ -10,6 +10,7 @@
 **/exports/
 **/reports/
 **/logs/
+outputs/
 *.log
 
 # Local development files.
