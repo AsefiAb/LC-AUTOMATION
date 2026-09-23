@@ -12,10 +12,13 @@ The daily GitHub workflow now targets the owner's Windows computer, labeled
 headless reuse passed for all three regions, and September 22 metrics were
 verified for all 18 stores. A complete workflow preview is the next cutover gate.
 
-`LC Automation Sales Runner` starts the GitHub connection at Windows sign-in.
+The `LC Automation Sales Runner` Windows startup entry starts the GitHub
+connection at Windows sign-in.
 The computer must remain signed in, awake, and online for the 08:00 Pacific job.
 The runner lives at `%LOCALAPPDATA%/LC-Automation/sales-runner`, outside OneDrive.
-This task starts the connection; GitHub owns the report schedule.
+This startup entry starts the connection; GitHub owns the report schedule.
+The workflow uses the existing local Python 3.12 in an isolated environment,
+without installing a machine-wide Python runtime.
 
 The workflow uses `ALTAMETRICS_AUTH_MODE=local-session`. Initial sessions come
 from the three verified regional GitHub secrets. Refreshed cookies are stored
