@@ -179,7 +179,7 @@ async def login(page, region, session=None):
             raise RuntimeError(f'{region}: saved session needs interactive reconnection') from None
         return
     user_key, pass_key = ACCOUNTS[region]
-    await page.goto(URL, wait_until='domcontentloaded')
+    await page.goto(URL, wait_until='load', timeout=60000)
     for attempt in range(3):  # Initial form, SSO form, then confirmation only.
         state = await wait_login_state(page)
         if state == 'dashboard':
@@ -312,7 +312,16 @@ async def collect(day, config):
                 try:
                     page = await context.new_page()
                     page.set_default_timeout(30000)
-                    await login(page, region, session)
+                    for login_attempt in range(3):
+                        try:
+                            await login(page, region, session)
+                            break
+                        except RuntimeError as exc:
+                            if (session or str(exc) != 'Altametrics login redirect did not finish'
+                                    or login_attempt == 2):
+                                raise
+                            print(f'{region}: SSO redirect stalled; retrying the login entry page', flush=True)
+                            await page.wait_for_timeout(2000)
                     print(f'{region}: Altametrics login confirmed', flush=True)
                     def set_stage(value):
                         nonlocal stage
