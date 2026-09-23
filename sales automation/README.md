@@ -13,6 +13,16 @@ password changes, and agreements are not dismissed or removed. A security
 challenge still requires the account owner's attention. Workbook updates and
 delivery remain disabled until the live preview passes for all 18 stores.
 
+September 23 fresh-login verification: all 39 sales tests passed. The normal
+supplier announcement can now be acknowledged with its submit button, and SSO
+redirects are given time to complete before looking for another login form.
+The [live GitHub check](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35919925437)
+authenticated Gmail and read all three existing OneDrive workbooks. Colorado
+and Arizona then presented a CAPTCHA Security Check; Texas remained on the SSO
+redirect page until timeout. No workbook was uploaded and no email was sent.
+The replacement is not ready for daily delivery. Keep the original repository's
+daily job active until all 18 stores and a full workbook/email preview pass.
+
 ## Connections
 
 Add repository secrets in **AsefiAb/LC-AUTOMATION**, not the old repository:
