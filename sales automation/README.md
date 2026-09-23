@@ -5,6 +5,14 @@ transactions and Punched Labor %. TCP is used separately for payroll.
 The pipeline updates the same three CO/TX/AZ OneDrive workbooks and emails the
 updated copies daily for the previous date. All 18 stores are required.
 
+The daily workflow now signs in fresh with each region's username/password,
+matching the original repository's login approach. It does not load saved
+Altametrics sessions. Ordinary notice dialogs are closed through visible Close,
+Dismiss, Got it, Later, No thanks, or Skip buttons. Security checks, CAPTCHAs,
+password changes, and agreements are not dismissed or removed. A security
+challenge still requires the account owner's attention. Workbook updates and
+delivery remain disabled until the live preview passes for all 18 stores.
+
 ## Connections
 
 Add repository secrets in **AsefiAb/LC-AUTOMATION**, not the old repository:
@@ -33,7 +41,7 @@ on a laptop does not necessarily authorize a fresh GitHub runner.
 
 [Live check](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35535705207).
 
-### Connect an existing Altametrics login
+### Optional local session diagnostic (not used by the daily workflow)
 
 The local helper opens a clean browser for the account owner to sign in and
 complete verification. It checks the selected region, closes the sign-in browser,
@@ -50,10 +58,8 @@ python 'sales automation/connect_altametrics.py' --region TX
 
 Run each command separately and finish that region's login. These create
 `CO_ALTAMETRICS_SESSION`, `AZ_ALTAMETRICS_SESSION`, and `TX_ALTAMETRICS_SESSION`.
-The reporting job uses a saved session when present; otherwise it uses the
-existing regional username/password. An expired or rejected saved session stops
-the job and needs the same helper to reconnect. It does not fall back to repeated
-password attempts or dismiss security checks.
+These sessions are retained for explicit local diagnostics. The daily reporting
+job always uses the regional username/password and ignores saved sessions.
 
 Local sign-in success does **not** establish that GitHub runners can use the
 session. Run `preflight` in GitHub Actions after connecting all three accounts.

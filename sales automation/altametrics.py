@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from datetime import date
 from decimal import Decimal, InvalidOperation
-from altametrics_session import secret_name, validate_session, REGIONS, alt_host
+from altametrics_session import REGIONS, alt_host
 
 URL = 'https://aplogin.altametrics.com/ers/aplogin/LITTLE_CAESAR.html'
 ACCOUNTS = {'CO': ('COLORADO_USERNAME', 'COLORADO_PASSWORD'),
@@ -22,8 +22,7 @@ class AltametricsError(RuntimeError):
 
 
 def missing_secrets():
-    return [key for region, pair in ACCOUNTS.items() if not os.environ.get(secret_name(region))
-            for key in pair if not os.environ.get(key)]
+    return [key for pair in ACCOUNTS.values() for key in pair if not os.environ.get(key)]
 
 
 def number(value, percent=False):
@@ -98,6 +97,18 @@ async def settle(page):
         await page.wait_for_load_state('networkidle', timeout=15000)
     except Exception:
         pass
+    await dismiss_popups(page)
+
+
+async def dismiss_popups(page):
+    """Close ordinary notices through their buttons, preserving security prompts."""
+    await guard(page)
+    dialogs = page.locator('[role="dialog"]:visible, .modal:visible')
+    for i in range(await dialogs.count()):
+        dialog = dialogs.nth(i)
+        buttons = dialog.get_by_role('button', name=re.compile(r'^(Close|Dismiss|Got it|Later|No thanks|Skip)$', re.I))
+        if await buttons.count() == 1 and await buttons.first.is_visible():
+            await buttons.first.click()
     await guard(page)
 
 
@@ -222,17 +233,14 @@ async def collect(day, config):
         browser = await p.chromium.launch(headless=True)
         try:
             async def region_report(region):
-                session_value = os.environ.get(secret_name(region))
-                try:
-                    session = validate_session(session_value, region) if session_value else None
-                except ValueError:
-                    raise AltametricsError(f'{region}: invalid saved session; reconnect this region') from None
-                context = await browser.new_context(**({'storage_state': session['state']} if session else {}))
+                # Match the original reporting flow: authenticate from scratch
+                # for every region instead of restoring expiring session cookies.
+                context = await browser.new_context(viewport={'width': 1920, 'height': 1080})
                 stage = 'login'
                 try:
                     page = await context.new_page()
                     page.set_default_timeout(30000)
-                    await login(page, region, session)
+                    await login(page, region)
                     print(f'{region}: Altametrics login confirmed', flush=True)
                     def set_stage(value):
                         nonlocal stage

@@ -52,12 +52,33 @@ class SessionTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, '^Invalid Altametrics session; reconnect the selected region$'):
                     validate_session(value, 'CO')
 
-    def test_session_replaces_credentials_for_only_its_region(self):
+    def test_daily_fresh_login_requires_credentials_even_with_saved_session(self):
         with patch.dict(os.environ, {'CO_ALTAMETRICS_SESSION': json.dumps(session())}, clear=True):
-            self.assertEqual(altametrics.missing_secrets(), ['AZ_USERNAME', 'AZ_PASSWORD', 'TX_USERNAME', 'TX_PASSWORD'])
+            self.assertEqual(altametrics.missing_secrets(), ['COLORADO_USERNAME', 'COLORADO_PASSWORD', 'AZ_USERNAME', 'AZ_PASSWORD', 'TX_USERNAME', 'TX_PASSWORD'])
 
 
 class LoginTests(unittest.IsolatedAsyncioTestCase):
+    async def test_security_prompt_is_not_dismissed_as_a_popup(self):
+        page = Mock()
+        with patch.object(altametrics, 'guard', AsyncMock(side_effect=RuntimeError('interactive verification'))):
+            with self.assertRaisesRegex(RuntimeError, 'interactive'):
+                await altametrics.dismiss_popups(page)
+        page.locator.assert_not_called()
+
+    async def test_ordinary_dialog_closed_by_its_button(self):
+        button = Mock(is_visible=AsyncMock(return_value=True), click=AsyncMock())
+        buttons = Mock(count=AsyncMock(return_value=1), first=button)
+        dialog = Mock()
+        dialog.get_by_role.return_value = buttons
+        dialogs = Mock(count=AsyncMock(return_value=1))
+        dialogs.nth.return_value = dialog
+        page = Mock()
+        page.locator.return_value = dialogs
+        with patch.object(altametrics, 'guard', AsyncMock()) as guard:
+            await altametrics.dismiss_popups(page)
+        button.click.assert_awaited_once()
+        self.assertEqual(guard.await_count, 2)
+
     async def test_expired_session_stops_without_password_fallback(self):
         page = Mock(goto=AsyncMock())
         with patch.object(altametrics, 'settle', AsyncMock(side_effect=RuntimeError('Security Check'))), \
