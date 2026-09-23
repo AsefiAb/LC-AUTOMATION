@@ -5,6 +5,32 @@ transactions and Punched Labor %. TCP is used separately for payroll.
 The pipeline updates the same three CO/TX/AZ OneDrive workbooks and emails the
 updated copies daily for the previous date. All 18 stores are required.
 
+## Current local connection
+
+The daily GitHub workflow now targets the owner's Windows computer, labeled
+`lc-sales-interactive`. On September 23, interactive sign-in and subsequent
+headless reuse passed for all three regions, and September 22 metrics were
+verified for all 18 stores. A complete workflow preview is the next cutover gate.
+
+`LC Automation Sales Runner` starts the GitHub connection at Windows sign-in.
+The computer must remain signed in, awake, and online for the 08:00 Pacific job.
+The runner lives at `%LOCALAPPDATA%/LC-Automation/sales-runner`, outside OneDrive.
+This task starts the connection; GitHub owns the report schedule.
+
+The workflow uses `ALTAMETRICS_AUTH_MODE=local-session`. Initial sessions come
+from the three verified regional GitHub secrets. Refreshed cookies are stored
+under `%LOCALAPPDATA%/LC-Automation/sales-sessions`, encrypted with Windows DPAPI
+for this Windows user. They are never uploaded as report artifacts. Only this
+private repository's self-hosted Windows workflow can use this mode in Actions.
+The fresh-credential login remains available for explicit diagnostics.
+
+If verification or expiration interrupts a region, run the local
+`connect_altametrics.py --region CO` helper (or AZ/TX) and complete the visible
+sign-in. It refreshes both the encrypted local cache and the regional GitHub
+secret. No automatic password changes or security-challenge dismissal occurs.
+
+## Earlier hosted-runner tests
+
 The daily workflow now signs in fresh with each region's username/password,
 matching the original repository's login approach. It does not load saved
 Altametrics sessions. Ordinary notice dialogs are closed through visible Close,

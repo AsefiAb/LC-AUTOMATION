@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from datetime import date
 from decimal import Decimal, InvalidOperation
-from altametrics_session import REGIONS, alt_host
+from altametrics_session import REGIONS, alt_host, make_session
 
 URL = 'https://aplogin.altametrics.com/ers/aplogin/LITTLE_CAESAR.html'
 ACCOUNTS = {'CO': ('COLORADO_USERNAME', 'COLORADO_PASSWORD'),
@@ -22,6 +22,10 @@ class AltametricsError(RuntimeError):
 
 
 def missing_secrets():
+    if os.environ.get('ALTAMETRICS_AUTH_MODE') == 'local-session':
+        import local_sessions
+        local_sessions.require_local_windows()
+        return []  # Each region's encrypted cache/secret is validated on load.
     return [key for pair in ACCOUNTS.values() for key in pair if not os.environ.get(key)]
 
 
@@ -261,19 +265,25 @@ async def collect(day, config):
         browser = await p.chromium.launch(headless=True)
         try:
             async def region_report(region):
-                # Match the original reporting flow: authenticate from scratch
-                # for every region instead of restoring expiring session cookies.
-                context = await browser.new_context(viewport={'width': 1920, 'height': 1080})
+                session = None
+                if os.environ.get('ALTAMETRICS_AUTH_MODE') == 'local-session':
+                    import local_sessions
+                    session = local_sessions.load(region)
+                context = await browser.new_context(viewport={'width': 1920, 'height': 1080},
+                    **({'storage_state': session['state']} if session else {}))
                 stage = 'login'
                 try:
                     page = await context.new_page()
                     page.set_default_timeout(30000)
-                    await login(page, region)
+                    await login(page, region, session)
                     print(f'{region}: Altametrics login confirmed', flush=True)
                     def set_stage(value):
                         nonlocal stage
                         stage = value
-                    return await read_region_report(page, region, day, config, set_stage)
+                    rows = await read_region_report(page, region, day, config, set_stage)
+                    if session:
+                        local_sessions.save(region, make_session(region, page.url, await context.storage_state()))
+                    return rows
                 except Exception as exc:
                     # Private diagnostic image masks inputs, including passwords.
                     # Only control metadata (never field values/page text) is saved.

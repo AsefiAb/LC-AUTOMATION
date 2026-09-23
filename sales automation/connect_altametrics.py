@@ -82,6 +82,9 @@ async def connect(region, credentials_from_env=False, report_date=None):
             await context.close()
             await browser.close()
         verified = await verify_reusable_session(p, region, state)
+        if os.name == 'nt':
+            import local_sessions
+            local_sessions.save(region, verified)
         destination.save(name, json.dumps(verified, separators=(',', ':')))
         print(f'{region}: login reused successfully after closing the sign-in browser; verified session saved encrypted to LC-AUTOMATION. No email sent.', flush=True)
 

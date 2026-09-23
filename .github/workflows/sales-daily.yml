@@ -25,9 +25,12 @@ concurrency:
   cancel-in-progress: false
 jobs:
   report:
-    if: github.event.repository.private == true
-    runs-on: ubuntu-latest
+    if: github.event.repository.private == true && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Windows, X64, lc-sales-interactive]
     timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -36,29 +39,28 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r 'sales automation/requirements.txt'
-      - run: python -m playwright install --with-deps chromium
+      - run: python -m playwright install chromium
       - name: Verify reporting safeguards
         run: python -m unittest discover -s 'sales automation' -p 'test_*.py' -v
       - name: Check local run time
         id: gate
         env:
           EVENT_NAME: ${{ github.event_name }}
-        shell: bash
         run: |
-          if [ "$EVENT_NAME" = 'workflow_dispatch' ]; then
-            echo 'run=true' >> "$GITHUB_OUTPUT"
-          else
-            echo "run=$(python 'sales automation/daily_report.py' --schedule-gate)" >> "$GITHUB_OUTPUT"
-          fi
+          if ($env:EVENT_NAME -eq 'workflow_dispatch') {
+            'run=true' >> $env:GITHUB_OUTPUT
+          } else {
+            $gate = python 'sales automation/daily_report.py' --schedule-gate
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            "run=$gate" >> $env:GITHUB_OUTPUT
+          }
       - name: Validate sources, update workbooks, and deliver
         if: steps.gate.outputs.run == 'true'
         env:
-          COLORADO_USERNAME: ${{ secrets.COLORADO_USERNAME }}
-          COLORADO_PASSWORD: ${{ secrets.COLORADO_PASSWORD }}
-          AZ_USERNAME: ${{ secrets.AZ_USERNAME }}
-          AZ_PASSWORD: ${{ secrets.AZ_PASSWORD }}
-          TX_USERNAME: ${{ secrets.TX_USERNAME }}
-          TX_PASSWORD: ${{ secrets.TX_PASSWORD }}
+          ALTAMETRICS_AUTH_MODE: local-session
+          CO_ALTAMETRICS_SESSION: ${{ secrets.CO_ALTAMETRICS_SESSION }}
+          AZ_ALTAMETRICS_SESSION: ${{ secrets.AZ_ALTAMETRICS_SESSION }}
+          TX_ALTAMETRICS_SESSION: ${{ secrets.TX_ALTAMETRICS_SESSION }}
           REPORT_DATE: ${{ inputs.report_date }}
           MODE: ${{ inputs.mode || (vars.SALES_AUTOMATION_ENABLED == 'true' && 'deliver' || 'preflight') }}
           TCP_CLIENT_ID: ${{ secrets.TCP_CLIENT_ID }}
@@ -71,20 +73,20 @@ jobs:
           MS_TENANT_ID: ${{ vars.MS_TENANT_ID || 'common' }}
           CAAZ_GMAIL_APP_PASS: ${{ secrets.CAAZ_GMAIL_APP_PASS }}
           GITHUB_TOKEN: ${{ github.token }}
-        shell: bash
         run: |
-          if [ "$MODE" = 'preflight' ]; then
-            echo 'Sales validation only: delivery is disabled or preflight was selected. No workbook uploads or email.' >> "$GITHUB_STEP_SUMMARY"
-          fi
-          args=()
-          if [ -n "$REPORT_DATE" ]; then args+=(--date "$REPORT_DATE"); fi
-          case "$MODE" in
-            preflight) args+=(--preflight) ;;
-            preview) args+=(--preview) ;;
-            deliver) ;;
-            *) exit 1 ;;
-          esac
-          python 'sales automation/daily_report.py' "${args[@]}"
+          if ($env:MODE -eq 'preflight') {
+            'Sales validation only. No workbook uploads or email.' >> $env:GITHUB_STEP_SUMMARY
+          }
+          $reportArgs = @()
+          if ($env:REPORT_DATE) { $reportArgs += @('--date', $env:REPORT_DATE) }
+          switch ($env:MODE) {
+            'preflight' { $reportArgs += '--preflight' }
+            'preview' { $reportArgs += '--preview' }
+            'deliver' { }
+            default { exit 1 }
+          }
+          python 'sales automation/daily_report.py' @reportArgs
+          exit $LASTEXITCODE
       - name: Keep private reports briefly
         if: always() && steps.gate.outputs.run == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

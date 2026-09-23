@@ -47,7 +47,7 @@ def setup_issues(config, require_email=True):
     source = config.get('source')
     keys = ['MS_CLIENT_ID', 'MS_REFRESH_TOKEN']
     if source == 'Altametrics':
-        keys += [key for pair in altametrics.ACCOUNTS.values() for key in pair]
+        keys += altametrics.missing_secrets()
     elif source == 'TCP':
         if not config.get('tcp_metrics'):
             issues.append('TCP has no confirmed sales/transaction/actual labor-cost endpoint configured.')
