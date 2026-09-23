@@ -54,7 +54,9 @@ def load(region):
     value = os.environ.get(secret_name(region))
     if not value:
         raise RuntimeError(region + ': sign in locally to connect this region')
-    return validate_session(value, region)
+    session = validate_session(value, region)
+    save(region, session)
+    return session
 
 
 def save(region, session):
