@@ -1,5 +1,15 @@
 # Tips and payroll
 
+ADP uploads are **CSV only**: Texas `EPIZKT00.CSV` (company ZKT), Arizona
+`EPIFNC00.CSV` (FNC), and Colorado `EPIFND00.CSV` (FND). Store and issues
+workbooks remain `.xlsx` supporting reports. Never rename an Excel workbook
+to `.CSV`; the generator writes native CSV and verifies its filename, contents,
+control rows, employee identities, and decimal amounts before attaching it.
+Each run includes `ADP import checks.txt` with the period and CSV batch totals.
+Compare those totals and employee file numbers with ADP's import results, and
+review rejected rows before finalizing payroll. An issues attachment means the
+CSV excludes unresolved employees; the store reports still include them.
+
 The reporting pipeline is `payroll_run.py`. See [PAYROLL-RUNBOOK.md](PAYROLL-RUNBOOK.md) for its workflow, secrets, schedule, and current limitations. [Regional ADP CSV preparation](ADP-EXPORT.md) is implemented in `adp_export.py`; the live ADP connection and automated imports remain unfinished.
 
 Allocate each store's Gateway tips among eligible crew and Crew Leaders using

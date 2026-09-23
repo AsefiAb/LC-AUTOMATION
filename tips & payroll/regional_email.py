@@ -31,7 +31,7 @@ def build_region_messages(summary, sources, adp_imports=False, included_regions=
         people = grouped[region]
         totals = {key: decimal_text(sum(cents(p[key], key) for p in people))
                   for key in ('regular_hours', 'overtime_hours', 'total_hours', 'tips')}
-        from adp_roster import FILES
+        from adp_roster import FILES, validate_import
         expected = [FILES[region][2] if adp_imports else regional_filename(region, summary['period'])] + [
             f'{sid} {label}.xlsx' for sid in summary['stores'] if sid.startswith(region + '-')]
         if adp_imports and 'Add to ADP or review for termination.csv' in files:
@@ -48,6 +48,8 @@ def build_region_messages(summary, sources, adp_imports=False, included_regions=
         body = (f'Hi Alicia,\n\nAttached are the {name} tips and payroll reports for {label}.\n\n'
                 f'Regular hours: {totals["regular_hours"]}\nOvertime hours: {totals["overtime_hours"]}\n'
                 f'Total hours: {totals["total_hours"]}\nTotal tips: ${totals["tips"]}\n')
+        if adp_imports:
+            body += f'\nADP upload: {FILES[region][2]}. The Excel files are supporting reports.\n'
         if code in issue_regions:
             detail = issue_regions[code]
             body += (f'\nADP corrections needed: see the attached payroll issues sheet. '
@@ -70,6 +72,8 @@ def build_region_messages(summary, sources, adp_imports=False, included_regions=
             content = Path(spec['path']).read_bytes()
             if hashlib.sha256(content).hexdigest() != spec['sha256']:
                 raise ValueError('Payroll attachment changed after verification')
+            if adp_imports and filename == FILES[region][2]:
+                validate_import(region, filename, content)
             if filename.upper().endswith('.CSV'):
                 message.add_attachment(content, maintype='text', subtype='csv', filename=filename)
             else:

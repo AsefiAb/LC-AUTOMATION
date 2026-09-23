@@ -20,6 +20,29 @@ def name_key(value):
     return ' '.join(unicodedata.normalize('NFKC', value).casefold().split())
 
 
+def validate_import(region, filename, raw):
+    """Require a native ADP CSV, never an Excel workbook with a renamed suffix."""
+    code, company, expected = FILES[region]
+    if filename != expected:
+        raise ValueError(f'{code}: ADP upload must be named {expected}')
+    if raw.startswith((b'PK', b'\xd0\xcf\x11\xe0')) or b'\x00' in raw:
+        raise ValueError(f'{code}: ADP upload must contain CSV text, not an Excel workbook')
+    try:
+        text = raw.decode('utf-8-sig')
+    except UnicodeDecodeError:
+        text = raw.decode('cp1252')
+    rows = [r for r in csv.reader(io.StringIO(text)) if r and r[0] == company and len(r) == 9]
+    batches = {r[1] for r in rows}
+    if len(batches) != 1:
+        raise ValueError(f'{code}: CSV must contain one {company} payroll batch')
+    parsed = read_template(raw, company, next(iter(batches)))
+    for row in parsed['employees'].values():
+        if any(not re.fullmatch(r'\d+\.\d{2}', value) for value in row[6:]):
+            raise ValueError(f'{code}: hours and tips must be nonnegative decimal values with two places')
+    return {'filename': expected, 'company_code': company,
+            'employee_rows': len(parsed['employees']), 'content_type': 'text/csv'}
+
+
 def fill_region(summary, region, raw, overrides=None, allow_missing_zero=False):
     code, company, filename = FILES[region]
     # Identify the batch from employee rows; reject multiple/wrong batches.
@@ -137,5 +160,22 @@ def build_imports(summary, template_folder, output, settings=None):
         folder = output if detail['ready'] else output / 'NEEDS REVIEW'
         folder.mkdir(parents=True, exist_ok=True)
         (folder / filename).write_bytes(content)
+        detail['import_format'] = validate_import(region, filename, (folder / filename).read_bytes())
     audit['ready'] = not audit['issues'] and len(audit['regions']) == 3
+    checks = [f"ADP import checks: {summary['period']['start_date']} through {summary['period']['end_date']}",
+              'Upload the exact EPI filename ending in .CSV. Do not upload an .xlsx file or rename one to .CSV.',
+              'Select the matching ADP company and pay period. Do not import a batch twice.',
+              'Check the import results for rejected rows, then compare batch totals and employee file numbers.',
+              'The amounts below are CSV totals; supporting store reports include employees listed in issues.', '']
+    for region, (code, company, filename) in FILES.items():
+        detail = audit['regions'].get(code)
+        if not detail:
+            continue
+        totals = detail['totals']
+        checks.append(f"{code} | Company {company} | {filename} | {len(detail['employees'])} employee rows")
+        checks.append(f"Regular hours: {totals['regular_hours']} | Overtime hours: {totals['overtime_hours']} | Tips: ${totals['tips']}")
+        if not detail['ready']:
+            checks.append('INCOMPLETE: resolve the employee matches on the payroll issues sheet before finalizing payroll.')
+        checks.append('')
+    (output / 'ADP import checks.txt').write_text('\n'.join(checks), encoding='utf-8')
     return audit

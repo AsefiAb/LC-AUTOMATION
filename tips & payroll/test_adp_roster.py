@@ -1,9 +1,12 @@
 import copy
 import csv
 import io
+import hashlib
+import tempfile
 import unittest
+from pathlib import Path
 
-from adp_roster import fill_region
+from adp_roster import fill_region, validate_import
 from report_package import store_spec, issue_reconciliation
 
 
@@ -41,6 +44,22 @@ class CurrentADPRosterTests(unittest.TestCase):
         self.assertFalse(audit['ready'])
         self.assertTrue(any('reconcile' in x for x in audit['issues']))
 
+    def test_native_csv_filename_content_and_decimal_values(self):
+        output, _ = fill_region(self.summary, '3910', self.raw, allow_missing_zero=True)
+        check = validate_import('3910', 'EPIZKT00.CSV', output)
+        self.assertEqual(check['employee_rows'], 2)
+        self.assertEqual(check['content_type'], 'text/csv')
+        for filename in ['EPIZKT00.xlsx', 'EPIZKT00 (1).CSV', 'EPIFNC00.CSV']:
+            with self.assertRaisesRegex(ValueError, 'named EPIZKT00.CSV'):
+                validate_import('3910', filename, output)
+        for content in [b'PK\x03\x04workbook', b'\xd0\xcf\x11\xe0workbook']:
+            with self.assertRaisesRegex(ValueError, 'CSV text'):
+                validate_import('3910', 'EPIZKT00.CSV', content)
+        with self.assertRaises(ValueError):
+            validate_import('3759', 'EPIFNC00.CSV', output)
+        with self.assertRaisesRegex(ValueError, 'decimal'):
+            validate_import('3910', 'EPIZKT00.CSV', output.replace(b'78.22', b'78:22'))
+
     def test_adp_parenthetical_alias_is_explicit_not_fuzzy(self):
         raw = self.raw.replace(b'Robin De La Cruz', b'Roberta De La Cruz(Robin De La Cruz)')
         _, audit = fill_region(self.summary, '3910', raw, allow_missing_zero=True)
@@ -48,6 +67,26 @@ class CurrentADPRosterTests(unittest.TestCase):
         raw = self.raw.replace(b'Robin De La Cruz', b'Robyn De La Cruz')
         _, audit = fill_region(self.summary, '3910', raw, allow_missing_zero=True)
         self.assertFalse(audit['ready'])
+
+    def test_adp_email_attaches_native_csv_as_text_csv(self):
+        from regional_email import build_region_messages
+        output, _ = fill_region(self.summary, '3910', self.raw, allow_missing_zero=True)
+        summary = dict(self.summary, period={'start_date': '2026-09-08', 'end_date': '2026-09-21'},
+                       stores=['3910-01', '3910-02'])
+        with tempfile.TemporaryDirectory() as folder:
+            sources = []
+            for name, content in [('EPIZKT00.CSV', output),
+                                  ('3910-01 9.8.26-9.21.26.xlsx', b'supporting report'),
+                                  ('3910-02 9.8.26-9.21.26.xlsx', b'supporting report')]:
+                path = Path(folder) / name
+                path.write_bytes(content)
+                sources.append({'path': str(path), 'sha256': hashlib.sha256(content).hexdigest()})
+            message, = build_region_messages(summary, sources, adp_imports=True, included_regions=['3910'])
+            attachment = next(message.iter_attachments())
+            self.assertEqual(attachment.get_filename(), 'EPIZKT00.CSV')
+            self.assertEqual(attachment.get_content_type(), 'text/csv')
+            self.assertEqual(attachment.get_payload(decode=True), output)
+            self.assertIn('ADP upload: EPIZKT00.CSV', message.get_body().get_content())
 
     def test_duplicate_names_or_stale_override_block(self):
         raw = self.raw.replace(b'ADP Only', b'Robin De La Cruz')
