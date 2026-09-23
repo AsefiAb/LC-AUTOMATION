@@ -122,7 +122,7 @@ def read_export(path):
     return {'period': period, 'shifts': shifts, 'sha256': hashlib.sha256(raw).hexdigest()}
 
 
-def apply_export(report, path):
+def apply_export(report, path, approved_work_exceptions=None):
     native = read_export(path)
     first, last = native['period']
     if not report['period']['startDate'] <= first.isoformat() <= last.isoformat() <= report['period']['stopDate']:
@@ -130,6 +130,37 @@ def apply_export(report, path):
     if report.get('errors') or any(not report['datasets'].get(k, {}).get('complete') for k in ('hours', 'worksegments', 'jobcodes')):
         raise ValueError('A complete, error-free API inspection is required')
     result = copy.deepcopy(report)
+    # Only specifically reviewed orphan records may be reported separately.
+    # Preserve the original audit and never infer payable hours from punch duration.
+    approved = approved_work_exceptions or []
+    if approved and not result['datasets'].get('employees', {}).get('complete'):
+        raise ValueError('Complete employee roster required for reviewed orphan exceptions')
+    exceptions = []
+    roster = {str(p['employeeId']) for p in result['datasets'].get('employees', {}).get('records', [])}
+    calculated_ids = {str(s['recordId']) for p in result['datasets']['hours']['records'] for s in p['segments']}
+    records = result['datasets']['worksegments']['records']
+    for spec in approved:
+        matches = [s for s in records if str(s['id']) == str(spec['id'])]
+        if len(matches) != 1:
+            raise ValueError('Reviewed orphan shift no longer exists uniquely; review the exception again')
+        s = matches[0]
+        keys = ('id', 'employeeId', 'jobCodeId', 'timeIn', 'timeOut')
+        if any(str(s.get(k)) != str(spec.get(k)) for k in keys):
+            raise ValueError('Reviewed orphan shift changed; review the exception again')
+        key = (str(s['employeeId']), str(s['jobCodeId']), s['timeIn'], s.get('timeOut'))
+        if (str(s['employeeId']) in roster or str(s['id']) in calculated_ids or key in native['shifts']
+                or not first.isoformat() <= s['timeIn'][:10] <= last.isoformat()):
+            raise ValueError('Reviewed exception must remain absent from roster and calculated/native payroll')
+        from summarize_inspection import store_label
+        job = next((j for j in result['datasets']['jobcodes']['records'] if str(j['jobCodeId']) == str(s['jobCodeId'])), {})
+        if store_label(job.get('locationName')) != spec.get('store'):
+            raise ValueError('Reviewed orphan shift store differs from TCP job location')
+        exceptions.append({**{k: str(s[k]) for k in keys}, 'store': spec['store'],
+                           'reason': 'API shift absent from employee roster and calculated/native payroll. Identity, payable regular/OT hours and tips are unverified. Excluded pending TCP correction.'})
+        records.remove(s)
+    if exceptions:
+        result['datasets']['worksegments']['count'] = len(records)
+        result['reported_source_exceptions'] = exceptions
     jobs = {str(j['jobCodeId']): j for j in result['datasets']['jobcodes']['records']}
     expected = {}
     ids = set()

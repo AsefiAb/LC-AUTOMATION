@@ -74,7 +74,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           args=(--folder "$RUNNER_TEMP/payroll-input" --output "$RUNNER_TEMP/payroll-output" --mode "$MODE")
-          if [ "$REPLACE_REPORTS" = 'true' ]; then args+=(--revision adp-format-v2); fi
+          if [ "$REPLACE_REPORTS" = 'true' ]; then args+=(--revision adp-format-v3); fi
           if [ "$REFRESH_SOURCES" = 'true' ]; then args+=(--refresh-sources); fi
           python 'tips & payroll/run_current_package.py' "${args[@]}"
       - name: Retain private outputs briefly

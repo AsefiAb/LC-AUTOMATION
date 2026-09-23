@@ -31,6 +31,7 @@ def report_data(gateway, payroll):
                      'payroll_id': '', 'regular_hours': h['regular_hours'], 'overtime_hours': h['overtime_hours'],
                      'total_hours': h['total_hours'], 'tips': item['tips']})
     return {'period': payroll['period'], 'rows': rows, 'stores': allocation['stores'],
+            'source_exceptions': payroll.get('source_exceptions', []),
             'summary': summarize_rows(manifest, rows)}
 
 
@@ -43,6 +44,8 @@ def store_spec(data, sid):
               [float(store['gateway_tips']), '', float(store['eligible_crew_hours']), '', None, ''],
               ['Tips go only to crew and crew leaders. Managers receive zero tips.', '', '', '', '', ''],
               STORE_FIELDS]
+    if any(e['store'] == sid for e in data.get('source_exceptions', [])):
+        values[3][0] = 'Provisional tips: an unverified shift is excluded. See the regional payroll issues workbook.'
     formulas = {'E3': '=IF(C3>0,A3/C3,0)'}
     for i, p in enumerate(rows, 6):
         values.append([p['geid'], p['first_name'] + ' ' + p['last_name'], float(p['regular_hours']),
@@ -103,6 +106,22 @@ def prepare_current(gateway, payroll, output, template_folder, settings=None, wr
     data = report_data(gateway, payroll)
     output.mkdir(parents=True, exist_ok=True)
     audit = build_imports(data['summary'], template_folder, output, settings)
+    for region, (code, _, filename) in FILES.items():
+        exceptions = [e for e in data.get('source_exceptions', []) if e['store'].startswith(region + '-')]
+        if exceptions:
+            detail = audit['regions'][code]
+            if detail['ready']:
+                review = output / 'NEEDS REVIEW'
+                review.mkdir(exist_ok=True)
+                (output / filename).replace(review / filename)
+            detail['ready'] = False
+            detail['source_exceptions'] = exceptions
+            note = f'{code}: unverified source shift excluded; affected store tips are provisional'
+            detail['issues'].append(note)
+            audit['issues'].append(note)
+            audit['ready'] = False
+            with (output / 'ADP import checks.txt').open('a', encoding='utf-8') as file:
+                file.write('\n' + note + '. Resolve TCP employee and calculated hours before finalizing payroll.\n')
     specs = [store_spec(data, s['store']) for s in data['stores']]
     if write_stores:
         for spec in specs:
@@ -123,11 +142,13 @@ def prepare_current(gateway, payroll, output, template_folder, settings=None, wr
             if not detail or detail['ready']:
                 continue
             proof = issue_reconciliation(data['summary'], region, detail)
+            proof['source_exceptions'] = detail.get('source_exceptions', [])
             proof['filename'] = f'{code} Payroll issues {date_label(data["period"])}.xlsx'
             write_issues_on_runner(detail['missing'], proof, output)
             # Keep the native filename, but explicitly disclose its incomplete
             # status in the email and the issues workbook. Never invent ADP IDs.
-            ready_regions.append(region)
+            if region not in ready_regions:
+                ready_regions.append(region)
             issue_regions[code] = proof
     audit['reports_deliverable'] = len(ready_regions) == 3
     audit['issue_reports'] = issue_regions
@@ -181,6 +202,16 @@ def write_issues_on_runner(people, proof, output):
                       float(Decimal(p['regular_hours']) + Decimal(p['overtime_hours'])), float(p['tips']), p['reason']])
     sheet.append(['TOTAL', '', float(proof['regular_hours']), float(proof['overtime_hours']),
                   float(Decimal(proof['regular_hours']) + Decimal(proof['overtime_hours'])), float(proof['tips']), ''])
+    total_row = sheet.max_row
+    unknown_rows = []
+    for e in proof.get('source_exceptions', []):
+        sheet.append([e['employeeId'], 'Identity unverified', 'Unverified', 'Unverified', 'Unverified', 'Unverified',
+                      f"{e['store']} | Record {e['id']} | {e['timeIn']} to {e['timeOut']}. {e['reason']}"])
+        unknown_rows.append(sheet.max_row)
+    if unknown_rows:
+        sheet['A2'] = 'Known missing amounts totalled below. Unverified shifts are excluded from CSV and totals.'
+        sheet.append(['Next steps', 'Confirm the employee and correct/recalculate the shift in TCP. Regenerate payroll and store tips before finalizing.'])
+        sheet.append(['Tip impact', 'The affected store tip shares are provisional. Adding eligible crew hours changes shares for that store.'])
     for row in sheet:
         for cell in row:
             cell.font = Font(name='Arial', size=11)
@@ -190,7 +221,11 @@ def write_issues_on_runner(people, proof, output):
                 cell.number_format = '$#,##0.00' if cell.column == 6 else '0.00'
     for i, width in enumerate([14, 30, 18, 18, 18, 18, 48], 1):
         sheet.column_dimensions[get_column_letter(i)].width = width
-    for r in [3, sheet.max_row]:
+    from openpyxl.styles import Alignment
+    for r in unknown_rows:
+        sheet.cell(r, 7).alignment = Alignment(wrap_text=True, vertical='top')
+        sheet.row_dimensions[r].height = 160
+    for r in [3, total_row]:
         for cell in sheet[r]:
             cell.font = Font(name='Arial', size=11, bold=True)
             cell.fill = PatternFill('solid', fgColor='FFF0CC')
@@ -200,6 +235,10 @@ def write_issues_on_runner(people, proof, output):
     book.save(path)
     check = load_workbook(path, data_only=True, read_only=True)
     try:
+        for r, e in zip(unknown_rows, proof.get('source_exceptions', [])):
+            actual = [c.value for c in check.active[r]]
+            if actual[:6] != [e['employeeId'], 'Identity unverified'] + ['Unverified'] * 4 or e['id'] not in actual[6]:
+                raise ValueError('Unverified shift missing or assigned invented hours/tips')
         rows = list(check.active.iter_rows(min_row=4, max_row=3 + len(people), values_only=True))
         if len(rows) != len(people):
             raise ValueError('Incomplete issues workbook')

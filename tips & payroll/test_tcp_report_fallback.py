@@ -49,6 +49,28 @@ class NativeFallbackTests(unittest.TestCase):
         second = apply_export(first, self.path)
         self.assertEqual(second['native_export_reconciliation'][-1]['replacements'], [])
 
+    def test_only_exact_approved_orphan_can_be_reported_separately(self):
+        orphan = {'id': '9', 'employeeId': '999', 'jobCodeId': '123',
+                  'timeIn': '2026-09-14T09:00:00', 'timeOut': '2026-09-14T14:35:00'}
+        self.report['datasets']['employees'] = {'complete': True, 'records': [{'employeeId': 101}]}
+        self.report['datasets']['jobcodes']['records'][0]['locationName'] = '03910-00004'
+        self.report['datasets']['worksegments']['records'].append(orphan)
+        spec = dict(orphan, store='3910-04')
+        with self.assertRaisesRegex(ValueError, 'coverage'):
+            apply_export(self.report, self.path)
+        result = apply_export(self.report, self.path, [spec])
+        self.assertEqual(len(self.report['datasets']['worksegments']['records']), 2)
+        self.assertEqual(len(result['datasets']['worksegments']['records']), 1)
+        self.assertEqual(result['reported_source_exceptions'][0]['id'], '9')
+        self.assertNotIn('regular_hours', result['reported_source_exceptions'][0])
+        with self.assertRaisesRegex(ValueError, 'changed'):
+            apply_export(self.report, self.path, [dict(spec, timeOut='2026-09-14T14:36:00')])
+        with self.assertRaisesRegex(ValueError, 'store differs'):
+            apply_export(self.report, self.path, [dict(spec, store='3910-03')])
+        self.report['datasets']['employees']['records'].append({'employeeId': 999})
+        with self.assertRaisesRegex(ValueError, 'absent from roster'):
+            apply_export(self.report, self.path, [spec])
+
     def test_equal_punch_zero_marker_matches_but_elapsed_zero_rejected(self):
         self.shift[6] = self.shift[4]
         self.shift[10:14] = ['0:00'] * 4

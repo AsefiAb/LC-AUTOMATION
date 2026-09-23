@@ -16,7 +16,7 @@ def main():
     parser.add_argument('--folder', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--mode', choices=['preview', 'deliver'], default='preview')
-    parser.add_argument('--revision', choices=['adp-format-v2'])
+    parser.add_argument('--revision', choices=['adp-format-v2', 'adp-format-v3'])
     parser.add_argument('--refresh-sources', action='store_true')
     args = parser.parse_args()
     read = lambda name: json.loads((args.folder / name).read_text(encoding='utf-8-sig'))
@@ -32,8 +32,9 @@ def main():
         (args.output / 'gateway-input.json').write_text(json.dumps(tips), encoding='utf-8')
     else:
         source, tips = read('tcp-audit.json'), read('gateway-input.json')
-    source = apply_export(source, args.folder / 'native-payroll.xml')
+    source = apply_export(source, args.folder / 'native-payroll.xml', settings.get('approved_work_exceptions'))
     payroll = normalize(source)
+    payroll['source_exceptions'] = source.get('reported_source_exceptions', [])
     dates = payroll['period']
     period_for(datetime.now(timezone.utc), dates['start_date'], dates['end_date'])
     if settings.get('period') != dates:
@@ -47,7 +48,7 @@ def main():
             raise ValueError('Delivery requires the private repository workflow')
         if args.revision:
             for message in messages:
-                message.replace_header('Message-ID', message['Message-ID'].replace('@', '-adp-format-v2@'))
+                message.replace_header('Message-ID', message['Message-ID'].replace('@', '-' + args.revision + '@'))
                 # Keep the requested short summary and add one replacement notice.
                 part = message.get_body(preferencelist=('plain',))
                 part.set_content(part.get_content() + '\nThese files replace the reports sent earlier for this pay period.\n')

@@ -10,6 +10,16 @@ Compare those totals and employee file numbers with ADP's import results, and
 review rejected rows before finalizing payroll. An issues attachment means the
 CSV excludes unresolved employees; the store reports still include them.
 
+An explicitly reviewed API-only shift can be listed separately using a
+period-specific `approved_work_exceptions` entry in the private roster settings.
+The record ID, employee ID, job, both punches and store must still match exactly,
+and the record must remain absent from the roster and calculated/native payroll.
+Unknown hours and tips are labelled unverified, never assigned zero. The regional
+issues workbook and email disclose the exclusion and provisional store tips.
+Any new or changed mismatch still stops the run. The manual replacement workflow
+uses the `adp-format-v3` delivery receipts to send the requested revised reports
+once, without duplicating them on retries.
+
 The reporting pipeline is `payroll_run.py`. See [PAYROLL-RUNBOOK.md](PAYROLL-RUNBOOK.md) for its workflow, secrets, schedule, and current limitations. [Regional ADP CSV preparation](ADP-EXPORT.md) is implemented in `adp_export.py`; the live ADP connection and automated imports remain unfinished.
 
 Allocate each store's Gateway tips among eligible crew and Crew Leaders using

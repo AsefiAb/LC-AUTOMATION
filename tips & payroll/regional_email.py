@@ -57,6 +57,10 @@ def build_region_messages(summary, sources, adp_imports=False, included_regions=
                      f'The issues sheet accounts for {detail["regular_hours"]} regular hours, '
                      f'{detail["overtime_hours"]} overtime hours and ${detail["tips"]} in tips '
                      'not included in the import file. The totals above and store sheets include them.\n')
+            if detail.get('source_exceptions'):
+                body += ('\nThe issues workbook also lists an API shift absent from TCP payroll and the roster. '
+                         'Its payable hours and tips are unknown and excluded from these totals. '
+                         'Tips for the affected store are provisional and must be recalculated if eligible hours are added.\n')
         # Keep employee details in the Excel attachments. Mention an unmapped
         # zero-hour person only while the actual roster still has that issue.
         for person in summary['employees']:
@@ -91,7 +95,7 @@ def delivery_ledgers(end_date, revision=None):
     legacy = DeliveryLedger(end_date, namespace='payroll').read()
     if legacy and not revision:
         raise ValueError('Legacy combined payroll delivery exists; review before sending regional emails')
-    if revision not in (None, 'adp-format-v2'):
+    if revision not in (None, 'adp-format-v2', 'adp-format-v3'):
         raise ValueError('Unknown payroll delivery revision')
     ledgers = {code: DeliveryLedger(end_date + '-' + code + ('-' + revision if revision else ''), namespace='payroll') for code, _ in REGIONS.values()}
     if revision:
@@ -99,6 +103,10 @@ def delivery_ledgers(end_date, revision=None):
             prior = DeliveryLedger(end_date + '-' + code, namespace='payroll').read()
             if prior and prior.get('status') != 'sent':
                 raise ValueError('An earlier regional email has an uncertain outcome; check Gmail Sent')
+            if revision == 'adp-format-v3':
+                prior_v2 = DeliveryLedger(end_date + '-' + code + '-adp-format-v2', namespace='payroll').read()
+                if prior_v2 and prior_v2.get('status') != 'sent':
+                    raise ValueError('An earlier replacement email has an uncertain outcome; check Gmail Sent')
     # Inspect all regions before any send; an uncertain prior SMTP outcome must
     # be resolved first. Confirmed sends are skipped on a retry.
     for ledger in ledgers.values():
