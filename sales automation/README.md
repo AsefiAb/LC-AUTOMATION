@@ -36,9 +36,10 @@ Credentials use COLORADO_USERNAME/COLORADO_PASSWORD, AZ_USERNAME/AZ_PASSWORD,
 and TX_USERNAME/TX_PASSWORD. The local browser helpers remain diagnostic tools
 only and are not called by the workflow.
 
-Cloud migration validation is in progress. The first hosted preview verified
-all Colorado and Texas stores; Arizona's SSO redirect stalled. A retry update
-is being validated before the cloud migration can be called complete.
+The [cloud preview on September 23](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35929515395)
+passed: all 18 stores, all three workbooks and the email preview for September 22.
+The bounded SSO retry was exercised successfully for Colorado. Daily live delivery
+remains enabled, and the existing receipt prevents resending September 22.
 
 ## Excel and email
 
@@ -87,10 +88,9 @@ risk sending a duplicate. Private report artifacts are retained for three days.
 ## Connections and maintenance
 
 The current workflow requires `MS_CLIENT_ID`, `MS_REFRESH_TOKEN`, and
-`CAAZ_GMAIL_APP_PASS`. The Altametrics credentials are entered in the dedicated
-local browsers; the daily job does not use the regional password/session secrets.
-A Python 3.12 installation is required on the computer; each run prepares an
-isolated environment without a machine-wide installer.
+`CAAZ_GMAIL_APP_PASS`. The six regional Altametrics username/password secrets are also required.
+Python and Chromium are installed on the GitHub runner; no local installation
+is required for scheduled runs.
 
 For Microsoft reconnection, use the existing app and authorized workbook account:
 

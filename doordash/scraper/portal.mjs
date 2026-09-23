@@ -2,10 +2,15 @@ import { moneyCents, orderKey, orderUrl } from './state.mjs';
 import { financialsUrl } from './disputes/doordash-stores.mjs';
 
 export async function guard(page) {
+  // Allow an automatic browser check to finish; never treat its interim page
+  // as an empty report, and never interact with a human verification prompt.
+  if (/security verification/i.test(await page.locator('body').innerText({ timeout: 15000 }))) {
+    await page.waitForFunction(() => !/security verification/i.test(document.body.innerText), null, { timeout: 30000 }).catch(() => {});
+  }
   const text = await page.locator('body').innerText({ timeout: 15000 });
   if (/identity\.doordash|\/merchant\/login/.test(page.url()) ||
       /verify you are human|security verification|too many disputes|try again in 72|dispute limit/i.test(text)) {
-    throw new Error('Portal requires login, verification, or a dispute cooldown; finish in Chrome before retrying');
+    throw new Error('Portal requires login, verification, or a dispute cooldown; cloud access is not ready. No report was sent.');
   }
   return text;
 }
@@ -93,6 +98,19 @@ export async function readStatus(page) {
     ['pending', /dispute pending|under review/i],
   ].filter(([, pattern]) => pattern.test(text));
   return found.length === 1 ? found[0][0] : 'unknown';
+}
+
+export function approvedRefundCents(text) {
+  // Only an explicit refund label, not the order total or disputed amount.
+  const matches = [...text.matchAll(/(?:amount refunded|refund amount|refunded amount)\s*[:\-]?\s*\$([\d,]+(?:\.\d{2})?)/gi)];
+  const cents = [...new Set(matches.map(m => moneyCents(m[1])))];
+  return cents.length === 1 ? cents[0] : null;
+}
+
+export async function readOutcome(page) {
+  const status = await readStatus(page);
+  const amount = status === 'approved' ? approvedRefundCents(await guard(page)) : null;
+  return { status, approvedAmountCents: amount };
 }
 
 export async function prepare(page, row) {

@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
-import { scanStore, prepare, readStatus } from '../portal.mjs';
+import { scanStore, prepare, readStatus, approvedRefundCents } from '../portal.mjs';
+
+test('savings use explicit refunds and reject ambiguous or missing amounts', () => {
+  assert.equal(approvedRefundCents('Order total $100.00. Dispute approved. Amount refunded: $35.50'), 3550);
+  assert.equal(approvedRefundCents('Dispute approved. Original charge $100.00'), null);
+  assert.equal(approvedRefundCents('Refund amount $10.00; Amount refunded $20.00'), null);
+});
 
 // Isolated browser with all network requests intercepted; never contacts DoorDash.
 test('portal scan paginates and dispute form touches only its own dialog', async () => {

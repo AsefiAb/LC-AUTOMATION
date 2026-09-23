@@ -1,5 +1,7 @@
 name: DoorDash outcomes and email
 on:
+  schedule:
+    - cron: '0 15,16 * * 2'
   workflow_dispatch:
     inputs:
       send_email:
@@ -13,7 +15,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   report:
-    if: github.event.repository.private == true && github.ref == 'refs/heads/main'
+    if: github.event.repository.private == true && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.DOORDASH_AUTOMATION_ENABLED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:
@@ -28,7 +30,18 @@ jobs:
           persist-credentials: false
       - name: Set temporary history directory
         run: echo "DOORDASH_DATA_DIR=$RUNNER_TEMP/doordash-data" >> "$GITHUB_ENV"
+      - name: Check payroll-aligned report date
+        id: gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+          else
+            echo "run=$(python biweekly_summary.py --schedule-gate)" >> "$GITHUB_OUTPUT"
+          fi
       - name: Check cloud merchant connection
+        if: steps.gate.outputs.run == 'true'
         env:
           DOORDASH_STORAGE_STATE: ${{ secrets.DOORDASH_STORAGE_STATE }}
         run: |
@@ -43,33 +56,39 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install dependencies
+        if: steps.gate.outputs.run == 'true'
         run: |
           npm ci --prefix scraper --no-audit --no-fund
           python -m pip install requests==2.32.5 tzdata==2025.3
           cd scraper
           npx playwright install --with-deps chromium
       - name: Restore persistent history
+        if: steps.gate.outputs.run == 'true'
         id: history
         run: python cloud_state.py restore
       - name: Scan merchant stores without submitting disputes
+        if: steps.gate.outputs.run == 'true'
         env:
           DOORDASH_STORAGE_STATE: ${{ secrets.DOORDASH_STORAGE_STATE }}
-        run: node scraper/run.mjs --mode scan
+        run: xvfb-run -a node scraper/run.mjs --mode scan
       - name: Refresh saved order outcomes
+        if: steps.gate.outputs.run == 'true'
         env:
           DOORDASH_STORAGE_STATE: ${{ secrets.DOORDASH_STORAGE_STATE }}
-        run: node scraper/run.mjs --mode outcomes
+        run: xvfb-run -a node scraper/run.mjs --mode outcomes
       - name: Build tracker
+        if: steps.gate.outputs.run == 'true'
         id: tracker
         run: |
+          python biweekly_summary.py
           node scraper/report.mjs
           python -c "from pathlib import Path; import os; p=max(Path('reports').glob('DoorDash-Tracker-*.xlsx'), key=lambda p:p.stat().st_mtime); open(os.environ['GITHUB_OUTPUT'],'a').write('path='+str(p.resolve())+'\n')"
       - name: Email tracker
-        if: inputs.send_email
+        if: steps.gate.outputs.run == 'true' && (inputs.send_email || github.event_name == 'schedule')
         env:
           CAAZ_GMAIL_APP_PASS: ${{ secrets.CAAZ_GMAIL_APP_PASS }}
           REPORT_FILE: ${{ steps.tracker.outputs.path }}
-        run: python email_report.py "$REPORT_FILE"
+        run: python email_report.py "$REPORT_FILE" --summary reports/biweekly-summary.json
       - name: Persist outcomes and uncertain delivery receipts
         if: always() && steps.history.outcome == 'success'
         run: python cloud_state.py persist

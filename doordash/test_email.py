@@ -47,5 +47,19 @@ class EmailTests(unittest.TestCase):
             smtp.assert_not_called()
             self.assertEqual(json.loads(receipt.read_text())['status'], 'sending')
 
+    def test_biweekly_email_has_excel_and_first_unpaid_amount(self):
+        from biweekly_summary import summarize, PACIFIC
+        now = datetime(2026, 9, 23, 8, tzinfo=PACIFIC)
+        summary = summarize({'orders': {'x': {'store': 'CO-1', 'status': 'approved', 'approvedAmountCents': 100000}}}, {}, now)
+        config = {'from': 'ab@caazllc.com', 'to': ['carter@franbiznetwork.com', 'alicia@lccollc.com']}
+        with tempfile.TemporaryDirectory() as folder:
+            report = Path(folder) / 'DoorDash.xlsx'
+            report.write_bytes(b'fixture')
+            message = build_message(config, report, now, summary)
+            self.assertEqual(message['Subject'], "This week's dispute savings")
+            self.assertIn('AB Cut: $150.00 (15%)', message.get_body().get_content())
+            self.assertIn('Total still owed to AB: $150.00', message.get_body().get_content())
+            self.assertEqual(list(message.iter_attachments())[0].get_filename(), 'DoorDash.xlsx')
+
 
 if __name__ == '__main__': unittest.main()

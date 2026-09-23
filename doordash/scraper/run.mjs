@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { DOORDASH_STORES } from './disputes/doordash-stores.mjs';
 import { lock, readJson, readLedger, writeJson, orderKey, selectStores, validatePlan, submitOnce } from './state.mjs';
-import { scanStore, prepare, navigate, readStatus } from './portal.mjs';
+import { scanStore, prepare, navigate, readOutcome } from './portal.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const data = path.resolve(process.env.DOORDASH_DATA_DIR || path.join(root, 'data'));
@@ -78,13 +78,15 @@ async function main() {
     } else {
       for (const [key, row] of Object.entries(ledger.orders)) {
         if (!stores.some(s => s.storeId === row.storeId)) continue;
-        if (['approved', 'denied'].includes(row.status)) continue;
+        if (row.status === 'denied') continue;
         await navigate(page, row.href);
         await page.waitForFunction(() => /dispute approved|dispute denied|dispute pending|under review|dispute charge/i.test(document.body.innerText), null, { timeout: 20000 });
-        const status = await readStatus(page);
+        const outcome = await readOutcome(page);
+        const { status } = outcome;
         row.lastCheckedAt = new Date().toISOString();
         row.lastObservedStatus = status;
         if (status !== 'unknown') row.status = status;
+        if (status === 'approved') row.approvedAmountCents = outcome.approvedAmountCents;
         writeJson(file, ledger);
         run.results.push({ key, status });
         checkpoint();

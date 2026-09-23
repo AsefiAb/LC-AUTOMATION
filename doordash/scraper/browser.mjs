@@ -19,7 +19,8 @@ export async function openBrowser() {
   // Actions must never depend on a user's running desktop browser.
   if (process.env.GITHUB_ACTIONS === 'true' || process.env.DOORDASH_BROWSER_MODE === 'cloud') {
     const storageState = parseCloudSession(process.env.DOORDASH_STORAGE_STATE);
-    const browser = await chromium.launch({ headless: true });
+    // A GitHub virtual display is also invisible to the owner's computer.
+    const browser = await chromium.launch({ headless: !process.env.DISPLAY });
     try {
       const context = await browser.newContext({ storageState, viewport: { width: 1600, height: 1000 } });
       return { browser, context };
