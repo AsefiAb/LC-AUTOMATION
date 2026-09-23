@@ -62,10 +62,7 @@ jobs:
       - name: Validate sources, update workbooks, and deliver
         if: steps.gate.outputs.run == 'true'
         env:
-          ALTAMETRICS_AUTH_MODE: local-session
-          CO_ALTAMETRICS_SESSION: ${{ secrets.CO_ALTAMETRICS_SESSION }}
-          AZ_ALTAMETRICS_SESSION: ${{ secrets.AZ_ALTAMETRICS_SESSION }}
-          TX_ALTAMETRICS_SESSION: ${{ secrets.TX_ALTAMETRICS_SESSION }}
+          ALTAMETRICS_AUTH_MODE: local-live
           REPORT_DATE: ${{ inputs.report_date }}
           MODE: ${{ inputs.mode || (vars.SALES_AUTOMATION_ENABLED == 'true' && 'deliver' || 'preflight') }}
           TCP_CLIENT_ID: ${{ secrets.TCP_CLIENT_ID }}

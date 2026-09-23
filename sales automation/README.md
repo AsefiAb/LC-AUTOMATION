@@ -12,20 +12,21 @@ cookies can display the dashboard but fail on the next store change. The old
 repository remains active; the new scheduled workflow remains in preflight.
 Do not treat a dashboard-only saved-login check as a working report connection.
 
-The replacement under test is `live_browser.py --region CO --report-date
-2026-09-22` (also AZ/TX). It opens a dedicated Chrome profile per region, reads
+The replacement is `live_browser.py --region CO --report-date 2026-09-22`
+(also AZ/TX). It opens a dedicated Chrome profile per region, reads
 every store, detaches, then connects again and repeats the reads. Leave these
 three windows open after connecting. `ALTAMETRICS_AUTH_MODE=local-live` reads
 their existing dashboard tabs without navigating to a stale saved form URL.
 Profiles are outside OneDrive at `%LOCALAPPDATA%/LC-Automation/sales-chrome`;
 connections are loopback-only ports 9331/9332/9333. Closing a window, signing out,
 or restarting Windows may require reopening and signing in again. The daily
-workflow will switch to this mode only after the three full tests pass.
+workflow uses this mode; delivery remains disabled until the full preview passes.
 
 The daily GitHub workflow now targets the owner's Windows computer, labeled
-`lc-sales-interactive`. On September 23, interactive sign-in and subsequent
-headless reuse passed for all three regions, and September 22 metrics were
-verified for all 18 stores. A complete workflow preview is the next cutover gate.
+`lc-sales-interactive`. September 22 metrics were verified for all 18 stores
+during interactive tests. Each region must also pass two complete reads with
+a new connection to its retained browser. A complete GitHub workflow preview
+is the final cutover gate.
 
 The `LC Automation Sales Runner` Windows startup entry starts the GitHub
 connection at Windows sign-in.
@@ -35,17 +36,19 @@ This startup entry starts the connection; GitHub owns the report schedule.
 The workflow uses the existing local Python 3.12 in an isolated environment,
 without installing a machine-wide Python runtime.
 
-The workflow uses `ALTAMETRICS_AUTH_MODE=local-session`. Initial sessions come
-from the three verified regional GitHub secrets. Refreshed cookies are stored
-under `%LOCALAPPDATA%/LC-Automation/sales-sessions`, encrypted with Windows DPAPI
-for this Windows user. They are never uploaded as report artifacts. Only this
-private repository's self-hosted Windows workflow can use this mode in Actions.
-The fresh-credential login remains available for explicit diagnostics.
+The daily workflow uses `ALTAMETRICS_AUTH_MODE=local-live`. Only this private
+repository's self-hosted Windows workflow can use local browser modes in Actions.
+The cookie-restoration and fresh-credential modes remain diagnostic tools;
+the daily workflow does not consume the regional session or password secrets.
 
 If verification or expiration interrupts a region, run the local
-`connect_altametrics.py --region CO` helper (or AZ/TX) and complete the visible
-sign-in. It refreshes both the encrypted local cache and the regional GitHub
-secret. No automatic password changes or security-challenge dismissal occurs.
+`live_browser.py --region CO --report-date YYYY-MM-DD` helper (or AZ/TX) with a
+completed reporting date and complete the visible sign-in. Leave each browser
+open after the test. No automatic password changes or security-challenge
+dismissal occurs. Keep one Altametrics tab per dedicated window.
+
+Workbook sales are rounded to whole dollars, matching the original automation.
+The email and source records keep the full cents; transactions stay whole counts.
 
 ## Earlier hosted-runner tests
 
