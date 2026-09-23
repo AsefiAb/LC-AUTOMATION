@@ -7,6 +7,21 @@ updated copies daily for the previous date. All 18 stores are required.
 
 ## Current local connection
 
+**Cutover is still pending.** The full local workflow revealed that restored
+cookies can display the dashboard but fail on the next store change. The old
+repository remains active; the new scheduled workflow remains in preflight.
+Do not treat a dashboard-only saved-login check as a working report connection.
+
+The replacement under test is `live_browser.py --region CO --report-date
+2026-09-22` (also AZ/TX). It opens a dedicated Chrome profile per region, reads
+every store, detaches, then connects again and repeats the reads. Leave these
+three windows open after connecting. `ALTAMETRICS_AUTH_MODE=local-live` reads
+their existing dashboard tabs without navigating to a stale saved form URL.
+Profiles are outside OneDrive at `%LOCALAPPDATA%/LC-Automation/sales-chrome`;
+connections are loopback-only ports 9331/9332/9333. Closing a window, signing out,
+or restarting Windows may require reopening and signing in again. The daily
+workflow will switch to this mode only after the three full tests pass.
+
 The daily GitHub workflow now targets the owner's Windows computer, labeled
 `lc-sales-interactive`. On September 23, interactive sign-in and subsequent
 headless reuse passed for all three regions, and September 22 metrics were

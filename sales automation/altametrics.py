@@ -22,7 +22,7 @@ class AltametricsError(RuntimeError):
 
 
 def missing_secrets():
-    if os.environ.get('ALTAMETRICS_AUTH_MODE') == 'local-session':
+    if os.environ.get('ALTAMETRICS_AUTH_MODE') in ('local-session', 'local-live'):
         import local_sessions
         local_sessions.require_local_windows()
         return []  # Each region's encrypted cache/secret is validated on load.
@@ -66,6 +66,8 @@ def parse_tables(tables):
 
 async def guard(page):
     text = (await page.locator('body').inner_text()).lower()
+    if 'there was a problem in completing your request' in text or 'session timeout' in text:
+        raise RuntimeError('Altametrics rejected the session; sign in again in this region')
     if any(s in text for s in ('password expired', 'new password required', 'security check', 'not a robot', 'verify you are human')):
         raise RuntimeError('Altametrics requires an interactive login or password update')
     for frame in page.frames:
@@ -262,6 +264,18 @@ async def collect(day, config):
         raise RuntimeError('Missing Altametrics secrets: ' + ', '.join(missing_secrets()))
     from playwright.async_api import async_playwright
     async with async_playwright() as p:
+        if os.environ.get('ALTAMETRICS_AUTH_MODE') == 'local-live':
+            from live_browser import page_for
+            rows = []
+            for region in ACCOUNTS:
+                try:
+                    page = await page_for(p, region)
+                    await verify_account_region(page, region)
+                    rows.extend(await read_region_report(page, region, day, config))
+                except Exception as exc:
+                    detail = str(exc) if type(exc) in (RuntimeError, ValueError) else type(exc).__name__
+                    raise AltametricsError(region + ': dedicated browser needs attention: ' + detail) from None
+            return rows
         browser = await p.chromium.launch(headless=True)
         try:
             async def region_report(region):
