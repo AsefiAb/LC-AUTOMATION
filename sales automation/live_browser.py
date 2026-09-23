@@ -87,16 +87,24 @@ async def connect(region, day):
 
 if __name__ == '__main__':
     import argparse
-    from datetime import date, datetime
+    from datetime import date, datetime, timedelta
     from zoneinfo import ZoneInfo
     parser = argparse.ArgumentParser()
-    parser.add_argument('--region', required=True, choices=PORTS)
-    parser.add_argument('--report-date', required=True, type=date.fromisoformat)
+    selection = parser.add_mutually_exclusive_group(required=True)
+    selection.add_argument('--region', choices=PORTS)
+    selection.add_argument('--open-all', action='store_true', help='Open the three dedicated sales windows without reading reports')
+    parser.add_argument('--report-date', type=date.fromisoformat,
+        default=datetime.now(ZoneInfo('America/Los_Angeles')).date() - timedelta(days=1))
     args = parser.parse_args()
     if args.report_date >= datetime.now(ZoneInfo('America/Los_Angeles')).date():
         raise SystemExit('Use a completed report date')
     try:
-        asyncio.run(connect(args.region, args.report_date.isoformat()))
+        if args.open_all:
+            for region in PORTS:
+                launch(region)
+            print('Sales browsers opened. Sign into any region that asks, and leave all three windows open.')
+        else:
+            asyncio.run(connect(args.region, args.report_date.isoformat()))
     except Exception as exc:
         print('Sales browser check stopped: ' + (str(exc) if type(exc) is RuntimeError else type(exc).__name__), flush=True)
         raise SystemExit(1)
