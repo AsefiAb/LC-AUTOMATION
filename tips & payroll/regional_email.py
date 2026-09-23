@@ -52,15 +52,16 @@ def build_region_messages(summary, sources, adp_imports=False, included_regions=
             body += f'\nADP upload: {FILES[region][2]}. The Excel files are supporting reports.\n'
         if code in issue_regions:
             detail = issue_regions[code]
-            body += (f'\nADP corrections needed: see the attached payroll issues sheet. '
+            if any(cents(detail[k], k) for k in ('regular_hours', 'overtime_hours', 'tips')):
+                body += (f'\nADP corrections needed: see the attached payroll issues sheet. '
                      f'{FILES[region][2]} is incomplete until those employees are matched in ADP. '
                      f'The issues sheet accounts for {detail["regular_hours"]} regular hours, '
                      f'{detail["overtime_hours"]} overtime hours and ${detail["tips"]} in tips '
                      'not included in the import file. The totals above and store sheets include them.\n')
-            if detail.get('source_exceptions'):
-                body += ('\nThe issues workbook also lists an API shift absent from TCP payroll and the roster. '
-                         'Its payable hours and tips are unknown and excluded from these totals. '
-                         'Tips for the affected store are provisional and must be recalculated if eligible hours are added.\n')
+            for e in detail.get('source_exceptions', []):
+                body += (f'\nTCP review needed: {e["store"]}, GEID {e["employeeId"]}, '
+                         f'{e["timeIn"][:10]}. Payable hours and tips for this unmatched shift are unverified '
+                         'and excluded. Store tip shares are provisional. See the attached issues workbook before finalizing.\n')
         # Keep employee details in the Excel attachments. Mention an unmapped
         # zero-hour person only while the actual roster still has that issue.
         for person in summary['employees']:
