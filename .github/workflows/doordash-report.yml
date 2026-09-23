@@ -20,13 +20,14 @@ jobs:
       run:
         working-directory: doordash
     env:
-      DOORDASH_DATA_DIR: ${{ runner.temp }}/doordash-data
       DOORDASH_BROWSER_MODE: cloud
       GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+      - name: Set temporary history directory
+        run: echo "DOORDASH_DATA_DIR=$RUNNER_TEMP/doordash-data" >> "$GITHUB_ENV"
       - name: Check cloud merchant connection
         env:
           DOORDASH_STORAGE_STATE: ${{ secrets.DOORDASH_STORAGE_STATE }}
