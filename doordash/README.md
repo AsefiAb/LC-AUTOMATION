@@ -2,8 +2,9 @@
 
 The owner requested cloud-only operation. The workflow runs on GitHub-hosted
 Ubuntu; it never opens a window on the owner computer. The local DoorDash sweep
-is disabled. The original shared Windows task still runs its separate Uber Eats
-jobs; those jobs can still open their own browsers.
+and the original shared Windows scheduled task are disabled. The remaining local
+Uber Eats collection is therefore paused while its cloud connection is unfinished.
+The task was backed up under the local LC-Automation/cloud-migration folder.
 
 ## Live status
 

@@ -17,7 +17,7 @@ are verified. Successful tests do not mean every source can run unattended.
 - Sales is enabled in GitHub for daily 8 a.m. Pacific. The old sales workflow is disabled, and the local sales runner/startup registration was removed.
 - Payroll is enabled for alternate Tuesdays at 8 a.m. Pacific, anchored September 22. Next: October 6 for September 22–October 5, then October 20. Missing source hours still stop delivery.
 - DoorDash delivery remains disabled until access and refund completeness are verified. Intended cadence: the same alternate Tuesdays. First delivery includes verified historical unpaid earnings; later deliveries avoid double billing.
-- The old local DoorDash sweep is disabled, but its shared Windows task still runs Uber. That task can still open local windows; Uber has not been migrated to cloud.
+- The old local DoorDash sweep and its shared Windows task are disabled to honor the no-window requirement. Uber collection is paused until its cloud connection is ready. A task backup is retained locally.
 - GitHub can delay scheduled starts. Delivery receipts prevent routine duplicate mail.
 
 ## What the owner still needs to provide
