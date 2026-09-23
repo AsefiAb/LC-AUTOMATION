@@ -1,6 +1,7 @@
 """Read-only regional Altametrics dashboard adapter, based on the original repo.
 
-No password changes, CAPTCHA removal, guessed totals, workbook writes or emails.
+No password changes, guessed totals, workbook writes or emails.
+Cloud compatibility uses the original repository's dashboard overlay handling.
 """
 import asyncio
 import os
@@ -64,7 +65,20 @@ def parse_tables(tables):
     return candidates[0]
 
 
+async def legacy_dashboard_popup(page):
+    # The original cloud report removes this client-side dashboard overlay.
+    # Restrict that compatibility behavior to the authenticated Altametrics app;
+    # never alter a login page, password prompt, or unrelated modal.
+    if os.environ.get('ALTAMETRICS_AUTH_MODE') != 'cloud-legacy':
+        return
+    parsed = urlsplit(page.url)
+    if (parsed.scheme == 'https' and alt_host(parsed.hostname)
+            and 'ers_webApp' in parsed.path):
+        await page.locator('#overlayCap').evaluate_all('els => els.forEach(el => el.remove())')
+
+
 async def guard(page):
+    await legacy_dashboard_popup(page)
     text = (await page.locator('body').inner_text()).lower()
     if 'there was a problem in completing your request' in text or 'session timeout' in text:
         raise RuntimeError('Altametrics rejected the session; sign in again in this region')
@@ -176,7 +190,15 @@ async def login(page, region, session=None):
         await guard(page)
         await fill_first(page, ['input[name="username"]:visible', 'input[name="userId"]:visible', '#validationTooltip01:visible', 'input[name="userName"]:visible', 'input[type="email"]:visible', 'input[type="text"]:visible'], os.environ[user_key])
         await fill_first(page, ['input[type="password"]:visible'], os.environ[pass_key])
-        await page.locator('button[type="submit"]:visible, input[type="submit"]:visible, input[value="Login"]:visible, input[value="GO"]:visible, button:has-text("Log"):visible, button:has-text("Sign"):visible').first.click()
+        if (os.environ.get('ALTAMETRICS_AUTH_MODE') == 'cloud-legacy'
+                and '/aim/login/' in page.url):
+            password = page.locator('input[type="password"]:visible')
+            form = password.locator('xpath=ancestor::form[1]')
+            if await form.count() != 1:
+                raise RuntimeError('SSO login form is ambiguous')
+            await form.evaluate('form => HTMLFormElement.prototype.submit.call(form)')
+        else:
+            await page.locator('button[type="submit"]:visible, input[type="submit"]:visible, input[value="Login"]:visible, input[value="GO"]:visible, button:has-text("Log"):visible, button:has-text("Sign"):visible').first.click()
         await page.wait_for_timeout(8000)
         await settle(page)
     raise RuntimeError('Altametrics login was not confirmed')
@@ -284,6 +306,7 @@ async def collect(day, config):
                     import local_sessions
                     session = local_sessions.load(region)
                 context = await browser.new_context(viewport={'width': 1920, 'height': 1080},
+                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                     **({'storage_state': session['state']} if session else {}))
                 stage = 'login'
                 try:

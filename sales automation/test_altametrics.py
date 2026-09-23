@@ -35,3 +35,18 @@ class AltametricsTests(unittest.TestCase):
         for records in ([], [record, record], [{**record, 'date': '2026-09-18'}]):
             with self.assertRaises(ValueError):
                 altametrics.validate(record['date'], records, config)
+
+
+class CloudCompatibilityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_overlay_handling_is_limited_to_authenticated_dashboard(self):
+        from unittest.mock import Mock, AsyncMock, patch
+        for url, expected in [
+            ('https://app108b.altametrics.com/ers_webApp/dashboard', True),
+            ('https://aplogin.altametrics.com/ers/aplogin/LITTLE_CAESAR.html', False),
+            ('https://example.com/ers_webApp/dashboard', False),
+        ]:
+            page = Mock(url=url)
+            page.locator.return_value.evaluate_all = AsyncMock()
+            with patch.dict('os.environ', {'ALTAMETRICS_AUTH_MODE': 'cloud-legacy'}):
+                await altametrics.legacy_dashboard_popup(page)
+            self.assertEqual(page.locator.return_value.evaluate_all.await_count, int(expected))
