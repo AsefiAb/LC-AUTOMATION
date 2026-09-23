@@ -31,4 +31,5 @@ jobs:
         working-directory: doordash/scraper
       - run: npm test
         working-directory: doordash/scraper
-      - run: python -m unittest discover -s doordash -p test_email.py -v
+      - run: python -m pip install requests==2.32.5 tzdata==2025.3
+      - run: python -m unittest discover -s doordash -p 'test_*.py' -v

@@ -1,4 +1,4 @@
-import { chromium } from 'playwright';
+import { openBrowser } from './browser.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,10 +24,7 @@ async function main() {
   if (!['scan', 'submit', 'outcomes'].includes(values.mode)) throw new Error('Invalid mode');
   if (!/^\d+$/.test(values.limit) || +values.limit < 1 || +values.limit > 500) throw new Error('Limit must be 1–500');
   const stores = selectStores(DOORDASH_STORES, values.stores);
-  const cdp = new URL(process.env.CDP_URL || 'http://127.0.0.1:9222');
-  if (cdp.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(cdp.hostname) || cdp.username || cdp.password) {
-    throw new Error('CDP_URL must point to Chrome on this computer');
-  }
+  if (process.env.GITHUB_ACTIONS === 'true' && values.mode === 'submit') throw new Error('Cloud submission is not enabled; scan and review orders first.');
   const file = path.join(data, 'ledger.json');
   const release = lock(data);
   let browser, page;
@@ -39,9 +36,9 @@ async function main() {
     const plan = values.mode === 'submit' ? validatePlan(readJson(values.plan || '', {}), DOORDASH_STORES)
       .filter(row => stores.some(s => s.storeId === row.storeId)) : [];
     if (values.mode === 'submit' && !plan.length) throw new Error('No approved orders in the selected plan/stores');
-    browser = await chromium.connectOverCDP(cdp.href, { timeout: 30000 });
-    const context = browser.contexts()[0];
-    if (!context) throw new Error('No Chrome session found');
+    const opened = await openBrowser();
+    browser = opened.browser;
+    const context = opened.context;
     page = await context.newPage();
     page.setDefaultTimeout(15000);
     if (values.mode === 'scan') {

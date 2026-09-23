@@ -33,11 +33,12 @@ def build_message(config, attachment, now):
     return message
 
 
-def deliver(message, receipt, password, smtp_factory=smtplib.SMTP_SSL):
+def deliver(message, receipt, password, smtp_factory=smtplib.SMTP_SSL, checkpoint=lambda: None):
     # Reserve before SMTP. A timeout or partial delivery must not trigger a duplicate.
     receipt.parent.mkdir(parents=True, exist_ok=True)
     with receipt.open('x', encoding='utf-8') as stream:
         json.dump({'status': 'sending', 'message_id': message['Message-ID']}, stream)
+    checkpoint()  # Reserve in GitHub before SMTP; a lost runner cannot cause a resend.
     with smtp_factory('smtp.gmail.com', 465, context=ssl.create_default_context(), timeout=30) as smtp:
         smtp.login(message['From'], ''.join(password.split()))
         refused = smtp.send_message(message)
@@ -46,6 +47,7 @@ def deliver(message, receipt, password, smtp_factory=smtplib.SMTP_SSL):
     temporary = receipt.with_suffix('.tmp')
     temporary.write_text(json.dumps({'status': 'sent', 'message_id': message['Message-ID']}), encoding='utf-8')
     temporary.replace(receipt)
+    checkpoint()
 
 
 def main():
@@ -70,7 +72,11 @@ def main():
     data = Path(os.environ.get('DOORDASH_DATA_DIR', ROOT / 'data'))
     # One automatic report per Pacific day, even when regenerated under a new name.
     receipt = data / 'email-receipts' / f'{now:%Y-%m-%d}.json'
-    deliver(message, receipt, password)
+    checkpoint = lambda: None
+    if os.environ.get('GITHUB_ACTIONS') == 'true':
+        from cloud_state import persist
+        checkpoint = persist
+    deliver(message, receipt, password, checkpoint=checkpoint)
     print('DoorDash tracker sent to Carter and Alicia.')
 
 

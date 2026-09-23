@@ -34,5 +34,18 @@ class EmailTests(unittest.TestCase):
             self.assertEqual(json.loads(receipt.read_text())['status'], 'sending')
             with self.assertRaises(FileExistsError): deliver(message, receipt, 'test-password', BrokenSMTP)
 
+    def test_cloud_reservation_failure_prevents_smtp(self):
+        from unittest.mock import Mock
+        smtp = Mock()
+        with tempfile.TemporaryDirectory() as folder:
+            receipt = Path(folder) / 'receipt.json'
+            def failed_checkpoint():
+                raise RuntimeError('Cloud history unavailable')
+            with self.assertRaisesRegex(RuntimeError, 'Cloud history'):
+                deliver({'From': 'ab@caazllc.com', 'Message-ID': '<test>'}, receipt,
+                        'test-password', smtp, checkpoint=failed_checkpoint)
+            smtp.assert_not_called()
+            self.assertEqual(json.loads(receipt.read_text())['status'], 'sending')
+
 
 if __name__ == '__main__': unittest.main()

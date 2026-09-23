@@ -22,41 +22,23 @@ and Punched Labor %. TCP remains separate for payroll.
 The old September 23 run displayed success but logged a Gmail authentication
 failure. It did not send the September 22 email. The new live run delivered it.
 
-## Keep the connection available
+## Cloud-only execution
 
-GitHub schedules the report; the **lc-sales-windows** runner executes it on the
-owner's Windows computer using the three dedicated Chrome windows.
+The daily workflow now runs on GitHub-hosted Ubuntu with a headless browser.
+The owner computer, local runner and open Chrome windows are no longer needed.
+Its local Windows startup entry has been removed. The original sales repo stays
+paused to prevent duplicate reports.
 
-1. Keep this computer signed into Windows, awake, and connected to the internet.
-2. Leave the Colorado, Arizona, and Texas sales Chrome windows open. Minimizing
-   them is fine. Keep one Altametrics tab in each window.
-3. After restarting or closing the windows, double-click **Open Sales Browsers**
-   on the desktop and sign into any region that asks. Complete verification
-   yourself, then open that region's store dashboard.
-4. If a report fails because a session expired, reconnect that region and rerun
-   the same report date in GitHub. The delivery receipt prevents duplicate sends.
+`ALTAMETRICS_AUTH_MODE=cloud-legacy` uses the original repo's dashboard overlay
+handling and SSO form submission, with bounded retries for stalled redirects.
+It never changes passwords or substitutes today's figures for a failed date.
+Credentials use COLORADO_USERNAME/COLORADO_PASSWORD, AZ_USERNAME/AZ_PASSWORD,
+and TX_USERNAME/TX_PASSWORD. The local browser helpers remain diagnostic tools
+only and are not called by the workflow.
 
-The **LC Automation Sales Runner** Windows startup entry reconnects the runner
-when this user signs in. Its files live outside OneDrive at
-`%LOCALAPPDATA%/LC-Automation/sales-runner`. Dedicated Chrome profiles live at
-`%LOCALAPPDATA%/LC-Automation/sales-chrome`, using loopback-only ports 9331/9332/9333.
-The desktop shortcut runs `live_browser.py --open-all`; it does not send email.
-
-For a full regional connection test from this repo:
-
-```powershell
-python 'sales automation/live_browser.py' --region CO
-```
-
-Use AZ or TX for the other regions. The default date is yesterday Pacific;
-`--report-date YYYY-MM-DD` selects another completed date. Each test reads the
-region twice and leaves its browser open. No email or workbook upload occurs.
-
-The daily workflow uses `ALTAMETRICS_AUTH_MODE=local-live`. It reuses the open
-dashboard without loading stale saved form URLs. The cookie-restoration and
-fresh-login adapters are diagnostic alternatives, not the daily connection.
-Only this private repository's self-hosted Windows workflow can use local modes
-in Actions. No CAPTCHA removal or automatic password changes occur.
+Cloud migration validation is in progress. The first hosted preview verified
+all Colorado and Texas stores; Arizona's SSO redirect stalled. A retry update
+is being validated before the cloud migration can be called complete.
 
 ## Excel and email
 

@@ -1,8 +1,8 @@
 # DoorDash disputes
 
 Migrated from the Desktop `doordash` folder into `AsefiAb/LC-AUTOMATION`.
-The original folder and its existing **DisputeApp DoorDash 2pm** Windows task
-are unchanged. This replacement has not submitted a live dispute or sent an email.
+The DoorDash sweep in the original **DisputeApp DoorDash 2pm** Windows task
+is disabled. Its separate Uber Eats work remains unchanged. This replacement has not submitted a live dispute or sent an email.
 The original Uber Eats/Grubhub automations remain in that original folder.
 
 ## What changed
@@ -39,6 +39,29 @@ for review. Current selectors require an accessible dispute dialog and reason me
 
 The migrated store labels/IDs come from the original scripts. They have not been
 independently reconciled with restaurant payroll store numbers.
+
+## GitHub cloud connection
+
+The **DoorDash outcomes and email** workflow now runs on GitHub-hosted Ubuntu.
+It launches Chromium headlessly on GitHub, never a browser on the owner computer.
+The workflow is manual until live validation is complete; automatic dispute
+submission is not enabled. It scans for review, checks historical outcomes,
+and can email the tracker after both operations succeed.
+
+- `DOORDASH_STORAGE_STATE`: DoorDash-only Playwright session JSON in a GitHub secret.
+  Browser sessions may expire or be rejected from a new IP; copying a session
+  does not guarantee unattended login. Verification failures stop the job.
+- `CAAZ_GMAIL_APP_PASS`: existing authorized sender connection.
+- The private `doordash-state` branch stores migrated order history and email
+  receipts. No authentication cookies are stored in that branch or artifacts.
+- History restore is required. A missing/corrupt history cannot silently become
+  an empty ledger. Concurrent updates are rejected instead of overwriting data.
+- A cloud email reservation is written before contacting SMTP. An interrupted
+  or uncertain send is not automatically repeated.
+- Reports and scan plans are private artifacts retained for three days.
+
+The old history was refreshed before the cloud test. Live cloud access and portal
+selectors still need validation. Do not delete the original folder/repo yet.
 
 ## Local setup and usage
 
