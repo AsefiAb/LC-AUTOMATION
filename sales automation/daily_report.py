@@ -272,7 +272,8 @@ def run(day, config, preview=False):
     for book in config['workbooks']:
         snapshot = drive.read(book['url'])
         region_rows = [row for row in rows if row['region'] == book['region']]
-        content, changes = update(snapshot['content'], region_rows, day)
+        content, changes = update(snapshot['content'], region_rows, day,
+            sales_whole_dollars=config.get('workbook_sales_rounding') == 'whole_dollars')
         path = output / (book['region'] + ' Sales ' + day + '.xlsx')
         prepared.append((book, snapshot, content, changes, path))
     # All three files are validated before the first upload.
@@ -280,7 +281,8 @@ def run(day, config, preview=False):
         if not preview and changes:
             drive.write(snapshot, content)
             verified = drive.read(book['url'])
-            _, remaining = update(verified['content'], [r for r in rows if r['region'] == book['region']], day)
+            _, remaining = update(verified['content'], [r for r in rows if r['region'] == book['region']], day,
+                sales_whole_dollars=config.get('workbook_sales_rounding') == 'whole_dollars')
             if remaining:
                 raise ReportError('OneDrive did not retain all expected updates.')
             content = verified['content']

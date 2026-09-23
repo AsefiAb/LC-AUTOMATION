@@ -134,6 +134,16 @@ class WorkbookTests(unittest.TestCase):
             with self.subTest(options=options), self.assertRaises(workbooks.WorkbookError):
                 workbooks.update(sample_workbook(**options), self.rows, '2026-09-16')
 
+    def test_legacy_whole_dollar_workbook_still_requires_matching_actual_values(self):
+        original_rows = copy.deepcopy(self.rows)
+        updated, changes = workbooks.update(sample_workbook(sales_value='1235'), self.rows,
+            '2026-09-16', sales_whole_dollars=True)
+        self.assertFalse(any(change['sheet'] == 'SALES' for change in changes))
+        self.assertEqual(self.rows, original_rows)  # Email keeps the source cents.
+        with self.assertRaises(workbooks.WorkbookError):
+            workbooks.update(sample_workbook(sales_value='1236'), self.rows,
+                '2026-09-16', sales_whole_dollars=True)
+
     def test_duplicate_date_does_not_append_or_guess(self):
         original = sample_workbook()
         output = io.BytesIO()

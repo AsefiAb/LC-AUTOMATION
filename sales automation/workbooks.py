@@ -8,7 +8,7 @@ import posixpath
 import re
 import zipfile
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_EVEN
 from lxml import etree as ET
 
 NS = {'s': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main',
@@ -122,7 +122,7 @@ def inspect_layout(content, stores, report_date):
         source.close()
 
 
-def update(content, region_rows, report_date):
+def update(content, region_rows, report_date, sales_whole_dollars=False):
     target = date.fromisoformat(report_date)
     values = {row['store']: row for row in region_rows}
     stores = sorted(values)
@@ -135,6 +135,10 @@ def update(content, region_rows, report_date):
         metric = 'sales' if name == 'SALES' else 'transactions'
         for store, address, cell in plan_sheet(root, strings, stores, target, date1904):
             desired = Decimal(str(values[store][metric]))
+            if metric == 'sales' and sales_whole_dollars:
+                # Match the original automation's round() for workbook inputs.
+                # Source records and email retain the full cents.
+                desired = desired.quantize(Decimal('1'), rounding=ROUND_HALF_EVEN)
             if cell is not None and cell.find(S + 'f') is not None:
                 raise WorkbookError('Refusing to overwrite a formula in ' + name + '!' + address)
             old = cell_value(cell, strings)

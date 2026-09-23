@@ -15,6 +15,7 @@
   "timezone": "America/Los_Angeles",
   "run_hour": 8,
   "source_repository": "AsefiAb/salesautomation",
+  "workbook_sales_rounding": "whole_dollars",
   "stores": [
     {
       "store": "3356-01",
