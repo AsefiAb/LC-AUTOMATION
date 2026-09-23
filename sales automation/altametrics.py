@@ -121,6 +121,34 @@ async def fill_first(page, selectors, value):
     raise RuntimeError('Required Altametrics login field was not found')
 
 
+async def wait_login_state(page):
+    """Let SSO redirects finish and acknowledge the observed supplier notice."""
+    for _ in range(60):
+        await guard(page)
+        host = urlsplit(page.url).hostname
+        if not alt_host(host):
+            raise RuntimeError('Altametrics login redirected outside its expected hosts')
+        if 'ers_webApp' in page.url and await page.locator('#FILTER_STORE_GO:visible').count() == 1:
+            await dismiss_popups(page)
+            return 'dashboard'
+        # This full-page inventory announcement is not a login form. Use its
+        # own submit control; never remove overlays or submit security prompts.
+        body = (await page.locator('body').inner_text()).lower()
+        notice = page.locator('input#Submitbutton[type="submit"]:visible')
+        if (host == 'apssopgs.altametrics.com'
+                and 'important message regarding: crazy sauce cups/lids' in body
+                and await notice.count() == 1):
+            await notice.click()
+            await page.wait_for_timeout(2000)
+            continue
+        if await page.locator('input[type="password"]:visible').count() == 1:
+            return 'credentials'
+        # The SSO page explicitly says it refreshes itself. Wait for the form
+        # or dashboard instead of trying to type credentials into that page.
+        await page.wait_for_timeout(1000)
+    raise RuntimeError('Altametrics login redirect did not finish')
+
+
 async def login(page, region, session=None):
     if session:
         try:
@@ -132,19 +160,19 @@ async def login(page, region, session=None):
         return
     user_key, pass_key = ACCOUNTS[region]
     await page.goto(URL, wait_until='domcontentloaded')
-    await page.locator('input[type="password"]:visible').first.wait_for()
-    for _ in range(2):  # Initial login plus the documented Texas SSO redirect.
+    for attempt in range(3):  # Initial form, SSO form, then confirmation only.
+        state = await wait_login_state(page)
+        if state == 'dashboard':
+            await verify_account_region(page, region)
+            return
+        if attempt == 2:
+            break
         await guard(page)
         await fill_first(page, ['input[name="username"]:visible', 'input[name="userId"]:visible', '#validationTooltip01:visible', 'input[name="userName"]:visible', 'input[type="email"]:visible', 'input[type="text"]:visible'], os.environ[user_key])
-        await fill_first(page, ['input[type="password"]'], os.environ[pass_key])
+        await fill_first(page, ['input[type="password"]:visible'], os.environ[pass_key])
         await page.locator('button[type="submit"]:visible, input[type="submit"]:visible, input[value="Login"]:visible, input[value="GO"]:visible, button:has-text("Log"):visible, button:has-text("Sign"):visible').first.click()
         await page.wait_for_timeout(8000)
         await settle(page)
-        if 'ers_webApp' in page.url:
-            await verify_account_region(page, region)
-            return
-        if '/aim/login/' not in page.url and 'AuthenticationController' not in page.url:
-            break
     raise RuntimeError('Altametrics login was not confirmed')
 
 

@@ -58,6 +58,38 @@ class SessionTests(unittest.TestCase):
 
 
 class LoginTests(unittest.IsolatedAsyncioTestCase):
+    async def test_supplier_notice_and_redirect_finish_before_credentials(self):
+        page = Mock(url='https://apssopgs.altametrics.com/notice', wait_for_timeout=AsyncMock())
+        body = Mock(inner_text=AsyncMock(return_value='Important Message Regarding: Crazy Sauce Cups/Lids'))
+        notice = Mock(count=AsyncMock(return_value=1))
+        password = Mock(count=AsyncMock(return_value=0))
+        dashboard = Mock(count=AsyncMock(return_value=1))
+
+        async def click():
+            body.inner_text.return_value = 'This page will refresh on its own'
+
+        async def wait(ms):
+            if ms == 1000:
+                page.url = session()['entry_url']
+
+        notice.click = AsyncMock(side_effect=click)
+        page.wait_for_timeout.side_effect = wait
+        page.locator.side_effect = lambda selector: {'body': body,
+            'input#Submitbutton[type="submit"]:visible': notice,
+            'input[type="password"]:visible': password,
+            '#FILTER_STORE_GO:visible': dashboard}[selector]
+        with patch.object(altametrics, 'guard', AsyncMock()), \
+             patch.object(altametrics, 'dismiss_popups', AsyncMock()):
+            self.assertEqual(await altametrics.wait_login_state(page), 'dashboard')
+        notice.click.assert_awaited_once()
+
+    async def test_security_prompt_stops_sso_wait(self):
+        page = Mock()
+        with patch.object(altametrics, 'guard', AsyncMock(side_effect=RuntimeError('interactive verification'))):
+            with self.assertRaisesRegex(RuntimeError, 'interactive'):
+                await altametrics.wait_login_state(page)
+        page.locator.assert_not_called()
+
     async def test_security_prompt_is_not_dismissed_as_a_popup(self):
         page = Mock()
         with patch.object(altametrics, 'guard', AsyncMock(side_effect=RuntimeError('interactive verification'))):
