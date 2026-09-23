@@ -8,8 +8,8 @@ jobs; those jobs can still open their own browsers.
 ## Live status
 
 Cloud portal access is **not verified**. The first GitHub test stopped at DoorDash's
-security verification page. A follow-up allows the normal automatic browser check
-time to finish in a GitHub virtual display. No dispute or DoorDash email has been
+security verification page. A [second cloud test](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35930600727)
+also stopped there after allowing the automatic check to finish in a GitHub virtual display. No dispute or DoorDash email has been
 sent by this replacement. Automatic reporting remains disabled until live access
 and historical refund amounts are verified.
 
@@ -37,8 +37,8 @@ Browser login is held only in encrypted `DOORDASH_STORAGE_STATE` GitHub secret.
 
 The XLSX contains **Dispute savings**, **Issues**, **By store**, **Orders**, and
 **Evidence review**. The email body shows the savings and **AB Cut: $X (15%)**;
-the first also shows the unpaid total. An incomplete first historical reconciliation
-blocks sending an inaccurate all-time bill. A preview and issues list remain available.
+the first also shows the unpaid total. An incomplete reconciliation
+blocks sending an inaccurate AB bill. A preview and issues list remain available.
 
 ## GitHub operation
 
@@ -63,7 +63,21 @@ Prioritize valid charges nearing their portal deadline, then larger recoveries.
 DoorDash's [merchant instructions](https://help.doordash.com/en-us/merchants/article/what-are-order-error-adjustments)
 describe choosing the relevant items/reason, checking the approved refund amount,
 and a 14-day portal dispute window. Older cases need support review.
-These improvements make claims more specific; they do not guarantee approval.
+These improvements organize the owner's review; they do not guarantee approval.
+The cloud job does not yet submit disputes. The existing legacy local form helper
+is retained for development; it has not been validated for production use.
+
+## Remaining connection work
+
+DoorDash rejects this GitHub browser session. A supported unattended connection
+or an export-based data source is needed before enabling the schedule. DoorDash's
+Reports page offers Financial reports with Error Charges and adjustments, including
+recurring reports. Obtain one historical export to confirm the refund/order fields
+and historical coverage before implementing automatic ingestion. A recurring export
+can support savings accounting but does not itself submit disputes.
+
+No all-time AB amount has been sent or represented as verified. Do not delete
+the original repository or historical files while this migration is incomplete.
 
 ## Tests and historical tools
 

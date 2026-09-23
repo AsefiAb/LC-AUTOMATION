@@ -38,7 +38,8 @@ export function buildReport(ledger, abSummary = null, reviewPlan = null) {
     summary.addRow([store, rows.length, t.approved / 100, t.denied / 100, t.pending / 100, t.uncertain / 100, t.observed / 100, refunds / 100]);
   }
   const t = totals(entries);
-  summary.addRow(['TOTAL', entries.length, t.approved / 100, t.denied / 100, t.pending / 100, t.uncertain / 100, t.observed / 100]).font = { bold: true };
+  const totalRefunds = entries.filter(r => r.status === 'approved' && Number.isSafeInteger(r.approvedAmountCents)).reduce((sum, r) => sum + r.approvedAmountCents, 0);
+  summary.addRow(['TOTAL', entries.length, t.approved / 100, t.denied / 100, t.pending / 100, t.uncertain / 100, t.observed / 100, totalRefunds / 100]).font = { bold: true };
   summary.addRow([]);
   summary.addRow(['Cumulative tracked orders. Approval is the portal status; bank/payout reconciliation is separate.']);
   summary.addRow(['Status last checked per order appears on the Orders sheet. Unknown reads preserve the last confirmed status.']);

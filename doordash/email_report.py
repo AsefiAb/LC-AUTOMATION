@@ -89,8 +89,8 @@ def main():
     # One automatic report per Pacific day, even when regenerated under a new name.
     receipt_day = summary['period_end'] if summary else f'{now:%Y-%m-%d}'
     receipt = data / 'email-receipts' / f'{receipt_day}.json'
-    if summary and summary['first_email'] and summary['issues']:
-        raise ValueError('Verify historical disputes before sending an all-time unpaid AB total. Preview and Issues sheet are available.')
+    if summary and summary['issues']:
+        raise ValueError('Verify unresolved disputes before sending AB earnings. Preview and Issues sheet are available.')
     if receipt.exists():
         prior = json.loads(receipt.read_text())
         if prior.get('status') == 'sent':

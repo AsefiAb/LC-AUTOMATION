@@ -72,3 +72,17 @@ test('XLSX totals distinguish approved from pending and unverified', async () =>
   assert.equal(wb.getWorksheet('By store').getCell('G2').value, 0.20);
   assert.ok((await wb.xlsx.writeBuffer()).byteLength > 1000);
 });
+
+
+test('savings workbook separates partial refunds from full disputed charges and shows AB share', () => {
+  const ledger = { version: 1, orders: { [row.key]: { ...row, status: 'approved', approvedAmountCents: 4000 } } };
+  const summary = { first_email: true, period_start: '2026-09-08', period_end: '2026-09-21', newly_verified_savings_cents: 4000,
+    ab_cut_cents: 600, first_unpaid_ab_cut_cents: 600, cumulative_savings_cents: 4000, issues: [], basis: 'Verified refunds' };
+  const wb = buildReport(ledger, summary, { orders: [] });
+  assert.equal(wb.getWorksheet('Dispute savings').getCell('B2').value, 40);
+  assert.equal(wb.getWorksheet('Dispute savings').getCell('B3').value, 6);
+  assert.equal(wb.getWorksheet('By store').getCell('H3').value, 40);
+  assert.equal(wb.getWorksheet('Orders').getCell('H2').value, 40);
+  assert.ok(wb.getWorksheet('Evidence review'));
+  assert.ok(wb.getWorksheet('Issues'));
+});

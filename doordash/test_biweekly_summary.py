@@ -35,3 +35,7 @@ class SavingsTests(unittest.TestCase):
             self.assertEqual(schedule_due(self.now(when)), due)
         start, end = period(self.now('2026-10-06T08:00'))
         self.assertEqual((str(start), str(end)), ('2026-09-22', '2026-10-05'))
+
+    def test_uncertain_previous_email_blocks_a_second_bill(self):
+        with self.assertRaisesRegex(ValueError, 'uncertain'):
+            summarize({'orders': {}}, {'2026-09-21': {'status': 'sending', 'ab_summary': {}}}, self.now('2026-10-06T08:00'))
