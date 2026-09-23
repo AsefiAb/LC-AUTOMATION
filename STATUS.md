@@ -1,42 +1,35 @@
-# Operational status — September 22, 2026
+# Operational status — September 23, 2026
 
-Payroll's scheduled delivery is enabled, with data validation before any email.
-Sales delivery remains disabled. A schedule being enabled does not establish that
-all live data sources can complete unattended.
-Keep the old repositories and working schedules until a verified cutover.
+Keep the old repositories as rollback copies until the remaining cloud cutovers
+are verified. Successful tests do not mean every source can run unattended.
 
-LC-AUTOMATION is the intended sole operating repository. Payroll, Gateway tips,
-sales, email and DoorDash implementations are local to this repo. Old repos
-remain source references and rollback copies until the cutover is verified.
-
-| Area | Verified | Still needed |
+| Area | Verified | Remaining work |
 | --- | --- | --- |
-| Payroll tips | September 8–21 Gateway totals for all 18 stores; 18 store Excel files and 3 separate single-worksheet regional totals files checked employee by employee; crew and Crew Leaders only, with tips kept in each store | All three regional email packages are ready but not yet sent |
-| TCP hours | Fresh full-period native export matched all 2,325 API shifts and restored 280 calculated splits; 424 period-roster people retained | API still returns those zero splits after generating the report; a native export remains necessary for this discrepancy |
-| Email | Gmail authentication previously succeeded; three dated TX/AZ/CO messages prepared with 5/8/8 matching Excel attachments; separate regional duplicate-send receipts implemented | Temporary-runner setup was blocked by automatic approval review before execution. Browser fallback needs sign-in as ab@caazllc.com; no September 8–21 payroll email has been sent |
-| OneDrive | All three workbooks downloaded successfully; Colorado store headers corrected; date/store layout checks passed | No additional Microsoft secrets needed |
-| Sales | Replacement code, requested plain-text email layout and tests; Gmail and existing workbook connections | Altametrics still requests interactive verification. The old workflow updated workbooks but its Gmail send failed despite a green run. |
-| ADP | Regional CSV builder exists; no import performed | Owner is handling imports; ADP integration is on hold |
-| DoorDash | Migrated code and tested safeguards | No GitHub self-hosted runner is registered. The old Windows task still points to the old Desktop folder; live outcome check and cutover remain unfinished. |
+| Sales | All 18 stores and three existing OneDrive workbooks passed a GitHub-hosted preview in [run 35929515395](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35929515395). The preceding live delivery was accepted for all requested recipients. | Verify the next scheduled GitHub-hosted delivery and an actual workbook update. Values already matched in the cutover run. |
+| Payroll delivery | September 8–21 packages were delivered through GitHub in [run 35916628671](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35916628671). Regional ADP attachments are CSV, with store Excel files and disclosed exceptions. | Current ADP roster exports are required for each new period while ADP API integration is on hold. Review regional issues before importing. |
+| Gateway tips | A fresh [September 23 preview](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35933304786) retrieved all 18 stores for September 8–21. Tips stay within each store and go only to crew and Crew Leaders. | No Gateway access blocker in this check. |
+| TCP hours | Native Complete Payroll exports can reconcile missing API calculations by exact employee, job and punches. | Fresh API preview failed: 281 closed zero-hour shifts, no calculated worked shifts on September 14, and one work-segment-only employee. A matching native export or TCP API correction remains necessary. |
+| DoorDash | Cloud code, history and duplicate-send checks are implemented. A downloaded financial export contains 8,971 transactions; all 422 tracked orders match it. | GitHub access still stops at security verification. Financial adjustments need recovery confirmation before AB billing. No replacement dispute email or automatic dispute submission has occurred. |
+| Uber Eats / Grubhub | The supplied workbook is preserved in the multi-platform totals report. | Fresh dated refunds and unattended access are not connected. Uber account 1 returned zero stores; Grubhub outcomes remain unverified. |
 
-Payroll is configured for every other Tuesday at 8 a.m. Pacific, starting
-September 22 for September 8–21 inclusive. Sales is configured for daily 8 a.m.
-Pacific. Payroll is active with `PAYROLL_AUTOMATION_ENABLED=true`; its next dates
-are October 6, October 20 and November 3, with retries and duplicate-send receipts.
-Sales remains in validation mode. GitHub may delay scheduled job starts.
+## Schedules and local tasks
 
-The current September 8–21 snapshot has no open punches. Two people with no
-worked shifts have no operational role; one also lacks a home store. They are
-included with zero hours and tips and explicit setup notes. Eleven people
-terminated before the period with no worked shifts are listed separately for
-roster completeness. No timecards or personnel assignments were edited.
+- Sales is enabled in GitHub for daily 8 a.m. Pacific. The old sales workflow is disabled, and the local sales runner/startup registration was removed.
+- Payroll is enabled for alternate Tuesdays at 8 a.m. Pacific, anchored September 22. Next: October 6 for September 22–October 5, then October 20. Missing source hours still stop delivery.
+- DoorDash delivery remains disabled until access and refund completeness are verified. Intended cadence: the same alternate Tuesdays. First delivery includes verified historical unpaid earnings; later deliveries avoid double billing.
+- The old local DoorDash sweep is disabled, but its shared Windows task still runs Uber. That task can still open local windows; Uber has not been migrated to cloud.
+- GitHub can delay scheduled starts. Delivery receipts prevent routine duplicate mail.
 
-Validation: 62 payroll tests passed; all 18 Excel tip pools reconcile to Gateway and all
-employee Excel calculations match the independent allocation. The earlier 23 sales tests passed locally. Sales live check
-[35542323649](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35542323649)
-confirmed Gmail and all three workbook connections and stopped at Altametrics
-interactive verification. It sent no email and changed no workbook values.
+## What the owner still needs to provide
 
-See [Payroll runbook](tips%20%26%20payroll/PAYROLL-RUNBOOK.md) for the native-export
-fallback and preview steps. Private audits, native exports, and correction lists
-are kept outside Git under ignored reports folders.
+1. Ask TCP to make calculated API hours match Complete Payroll; the concrete [support request](tips%20%26%20payroll/TCP-SUPPORT.md) describes the discrepancy. Until resolved, supply a Complete Payroll XML for each exact pay period.
+2. Export the current CO, AZ and TX ADP rosters each pay period so new employees have their actual ADP file numbers. No automatic ADP import is enabled.
+3. Provide a supported recurring refund source for DoorDash, Uber Eats and Grubhub, or arrange provider access that works unattended. A desktop login alone has not worked from GitHub for DoorDash.
+
+The DoorDash historical export covers September 23, 2024–September 22, 2026,
+not proof of history before that date. Four stores outside the tracked 18 are
+kept separate. Its 109 tracked orders with numeric adjustments are not automatically
+classified as approved dispute recoveries. No AB invoice was sent from those amounts.
+
+Private exports, payroll audits, employee details and reconciliation results stay
+in ignored report folders or private workflow artifacts, not the code branch.

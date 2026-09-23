@@ -86,6 +86,24 @@ is retained for development; it has not been validated for production use.
 
 ## Remaining connection work
 
+On September 23, an official Financial / Error charges and adjustments export
+was downloaded through the existing authenticated desktop session, without
+opening another browser. It covers September 23, 2024–September 22, 2026 and
+contains 8,971 unique transactions. All 422 tracked orders match by DoorDash
+**Delivery UUID and Store ID**; the portal order URL uses the delivery UUID,
+not the financial transaction ID. Four additional stores in the export are
+outside the tracked 18 and are kept separate.
+
+`financial_export.py --export PATH.csv-or-zip --ledger PATH.json --output PATH.json`
+creates a private, read-only reconciliation. Repeat `--export` to merge overlapping
+downloads: transaction IDs deduplicate identical rows and conflicting revisions
+fail validation. Signed adjustments and partial amounts are preserved. Missing
+amounts never become verified zero, and no adjustment or absent row automatically
+changes an order to won or denied. The result cannot bill AB, send email, or
+overwrite live history. Dispute-recovery confirmation remains necessary because
+many exported adjustments have no description. This one-time download does not
+establish a recurring cloud connection.
+
 DoorDash rejects this GitHub browser session. A supported unattended connection
 or an export-based data source is needed before enabling the schedule. DoorDash's
 Reports page offers Financial reports with Error Charges and adjustments, including
