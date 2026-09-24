@@ -8,11 +8,16 @@ The task was backed up under the local LC-Automation/cloud-migration folder.
 
 ## Live status
 
-Cloud portal access is **not verified**. The first GitHub test stopped at DoorDash's
-security verification page. A [second cloud test](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35930600727)
-also stopped there after allowing the automatic check to finish in a GitHub virtual display. No dispute or DoorDash email has been
-sent by this replacement. Automatic reporting remains disabled until live access
-and historical refund amounts are verified.
+Read-only cloud access is now **verified** without opening a browser. GitHub
+refreshed all 520 order statuses in [run 35944018274](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35944018274).
+A separate [financial crosscheck](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/35944353115)
+paged through all 18 stores and matched all 682 July 23–September 22 transactions
+against the official export, with no missing or extra entries. Earlier browser
+login tests stopped at security verification; the authenticated merchant read
+services work with the authorized session instead. Session expiry still requires
+renewal. No dispute or DoorDash email has been sent by this replacement.
+Automatic reporting and claim submission remain disabled pending recurring
+collection integration and complete historical billing reconciliation.
 
 422 historical orders were imported into the private `doordash-state` branch.
 Imported outcomes and refund amounts start unverified, never assumed won.
@@ -32,7 +37,7 @@ The snapshot is not a complete dated refund export. Uber account 1 returned zero
 stores, and the original Grubhub adapter could not verify refund outcomes. Historical
 weekly aggregates cannot be split accurately across Tuesday payroll boundaries.
 Fresh dated Uber/Grubhub data is required before a complete multi-platform earnings
-email can be sent. Importing this workbook does not unblock the cloud login or schedule.
+email can be sent. Importing this workbook does not establish dated platform coverage or enable the schedule.
 
 To refresh the retained source, use the read-only importer `tracker_snapshot.py`
 with the source XLSX and an output JSON path (`openpyxl` is required for extraction).
@@ -59,6 +64,22 @@ the first also shows the unpaid total. An incomplete reconciliation
 blocks sending an inaccurate AB bill. A preview and issues list remain available.
 
 ## GitHub operation
+
+For the complete two-month audit, run **Build dated DoorDash audit workbook**
+with period `2026-07-23_2026-09-22`. Enable `refresh_status` to read all order
+outcomes in GitHub and `verify_financials` to paginate all store transactions and
+compare them with the saved official export. Both are read-only. The private
+artifact includes the Excel report, source audit and reconciliation details.
+The audit covers 520 orders, not just the 422 orders in the older ledger.
+Confirmed recorded DoorDash credits are $1,056.89, with a $158.53 share for
+this period only. It is not an all-time invoice or bank-deposit confirmation.
+
+Portal scans inspect all pages and transaction rows for every configured store.
+Multiple charges on the same order are retained and aggregated. Each store has
+explicit coverage counts; missing pages, repeated pages, changed totals and
+unattempted stores make a scan incomplete instead of silently reporting success.
+Incomplete scans cannot become reviewed submission plans. The 15 unsubmitted
+orders in this audit are listed for review; three have a passed portal deadline.
 
 For a workbook from the saved financial export, run **DoorDash outcomes and email**
 with `source=saved-export-preview` and `send_email=false`. This mode runs entirely
@@ -114,12 +135,13 @@ overwrite live history. Dispute-recovery confirmation remains necessary because
 many exported adjustments have no description. This one-time download does not
 establish a recurring cloud connection.
 
-DoorDash rejects this GitHub browser session. A supported unattended connection
-or an export-based data source is needed before enabling the schedule. DoorDash's
-Reports page offers Financial reports with Error Charges and adjustments, including
-recurring reports. Obtain one historical export to confirm the refund/order fields
-and historical coverage before implementing automatic ingestion. A recurring export
-can support savings accounting but does not itself submit disputes.
+The current merchant session works for read-only dispute statuses and paginated
+financial transactions from GitHub. Those services have been validated against
+an official export, but are merchant-portal endpoints rather than a guaranteed
+public integration contract. Failures and expired sessions stop validation.
+Next work is recurring discovery and retained audit history, session renewal,
+evidence review for eligible claims, and complete dated Uber/Grubhub ingestion.
+The read-only audit does not file new disputes or enable scheduled emails.
 
 No all-time AB amount has been sent or represented as verified. Do not delete
 the original repository or historical files while this migration is incomplete.
