@@ -16,7 +16,7 @@ export function buildReport(ledger, abSummary = null, reviewPlan = null, tracker
     sheet.addRow(['Matched orders', financial.matched_orders]);
     sheet.addRow(['Orders with adjustments', financial.orders_with_adjustments]);
     sheet.addRow(['Known net adjustments ($)', financial.known_net_adjustment_cents / 100]);
-    sheet.addRow(['Other store IDs excluded', financial.other_store_ids.join(', ')]);
+    sheet.addRow(['Stores without tracked history', financial.other_store_ids.join(', ')]);
     sheet.addRow(['Basis', financial.basis]);
     for (const source of financial.sources) sheet.addRow(['Source file', source.filename]);
     sheet.columns = [{ width: 34 }, { width: 95 }];
@@ -50,6 +50,7 @@ export function buildReport(ledger, abSummary = null, reviewPlan = null, tracker
     }
     orders.getColumn(2).width = 40; orders.getColumn(8).width = 90;
     orders.getColumn(8).alignment = { wrapText: true };
+    for (let i = 2; i <= orders.rowCount; i++) orders.getRow(i).height = 32;
     orders.getColumn(6).numFmt = '$#,##0.00;[Red]($#,##0.00)';
     transactions.getColumn(2).width = 40; transactions.getColumn(3).width = 40;
     transactions.getColumn(8).numFmt = '$#,##0.00;[Red]($#,##0.00)';
@@ -122,6 +123,14 @@ export function buildReport(ledger, abSummary = null, reviewPlan = null, tracker
   detail.addRow(['Store', 'Order URL', 'Disputed amount ($)', 'Last confirmed status', 'Filed at', 'Last checked at', 'Latest observation', 'Verified refund ($)']);
   for (const row of entries) detail.addRow([row.store, row.href, row.amountCents / 100, row.status, row.filedAt || '', row.lastCheckedAt || '', row.lastObservedStatus || '', Number.isSafeInteger(row.approvedAmountCents) ? row.approvedAmountCents / 100 : null]);
   if (reviewPlan) {
+    const coverage = wb.addWorksheet('Store scan coverage');
+    coverage.addRow(['Scope', reviewPlan.scope]);
+    coverage.addRow(['Complete', reviewPlan.complete === true ? 'Yes' : 'No — incomplete scans are not zero disputes']);
+    coverage.addRow(['Store', 'Attempted', 'Complete', 'Pages', 'Expected transactions', 'Read transactions', 'Orders', 'New orders', 'Issue']);
+    for (const s of reviewPlan.stores || []) coverage.addRow([s.store, s.attempted ? 'Yes' : 'No', s.complete ? 'Yes' : 'No',
+      s.pages ?? null, s.expectedTransactions ?? null, s.readTransactions ?? null, s.foundOrders ?? null, s.newOrders ?? null, s.error || '']);
+    coverage.columns.forEach(c => { c.width = 25; }); coverage.getColumn(9).width = 75;
+    coverage.getRow(3).font = { bold: true }; coverage.getRow(3).alignment = { wrapText: true }; coverage.getRow(3).height = 32;
     const review = wb.addWorksheet('Evidence review');
     review.addRow(['Store', 'Order link', 'Charge ($)', 'Reported issue', 'Items to dispute', 'Supporting records / evidence', 'Reason to select', 'Reviewed explanation', 'Next action']);
     for (const row of [...reviewPlan.orders].sort((a, b) => b.amountCents - a.amountCents)) {

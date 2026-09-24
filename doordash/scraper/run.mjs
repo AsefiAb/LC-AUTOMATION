@@ -6,6 +6,7 @@ import { parseArgs } from 'node:util';
 import { DOORDASH_STORES } from './disputes/doordash-stores.mjs';
 import { lock, readJson, readLedger, writeJson, orderKey, selectStores, validatePlan, submitOnce } from './state.mjs';
 import { scanStore, prepare, navigate, readOutcome } from './portal.mjs';
+import { collectStoreScans } from './scan.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const data = path.resolve(process.env.DOORDASH_DATA_DIR || path.join(root, 'data'));
@@ -42,15 +43,12 @@ async function main() {
     page = await context.newPage();
     page.setDefaultTimeout(15000);
     if (values.mode === 'scan') {
-      const review = { version: 1, generatedAt: run.started, scope: 'Current portal date range; verify range and pagination in Chrome', orders: [] };
-      for (const store of stores) {
-        const rows = await scanStore(page, store);
-        review.orders.push(...rows.filter(row => !ledger.orders[orderKey(row.href, row.storeId)]));
-        run.results.push({ store: store.label, found: rows.length });
-        writeJson(path.join(data, 'review-plan.json'), review);
+      const review = await collectStoreScans(stores, ledger, store => scanStore(page, store), async current => {
+        writeJson(path.join(data, 'review-plan.json'), current);
+        run.results = current.stores;
         checkpoint();
-        console.log(`${store.label}: ${rows.length} charge(s)`);
-      }
+      });
+      if (!review.complete) throw new Error('Store coverage incomplete; see every store status in the private review plan');
       console.log(`Review plan: ${path.join(data, 'review-plan.json')}`);
     } else if (values.mode === 'submit') {
       const remaining = plan.filter(row => !ledger.orders[row.key]).slice(0, +values.limit);

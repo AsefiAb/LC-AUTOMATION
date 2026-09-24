@@ -1,6 +1,6 @@
 // All DoorDash stores under the merchant login, with their Financials →
-// Transactions page. The dispute run visits each in order until it finds one
-// actionable dispute.
+// Transactions page. Scanning visits every selected store and verifies every
+// results page; finding one order never ends the store or region scan.
 
 export const DOORDASH_STORES = [
   { region: "CO", label: "CO-1", storeId: "1150071" },

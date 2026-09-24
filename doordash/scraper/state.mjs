@@ -79,7 +79,7 @@ export function readLedger(file) {
 }
 
 export function validatePlan(plan, stores) {
-  if (plan.version !== 1 || !Array.isArray(plan.orders)) throw new Error('Invalid review plan');
+  if (plan.version !== 1 || plan.complete !== true || !Array.isArray(plan.orders)) throw new Error('Invalid or incomplete review plan');
   const seen = new Set();
   return plan.orders.filter(row => row.approved === true).map(row => {
     const store = stores.find(s => s.storeId === row.storeId);

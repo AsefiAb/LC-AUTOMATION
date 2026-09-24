@@ -29,69 +29,105 @@ export async function navigate(page, url) {
   }
 }
 
-async function visibleRows(page, store) {
-  const rows = await page.locator('a[href*="/merchant/financials/transactions/"]').evaluateAll(links => {
-    return links.map(a => ({ href: a.getAttribute('href'), text: (a.closest('tr') || a.closest('[role=row]') || a).innerText.replace(/\s+/g, ' ').trim() }))
-      .filter(row => /error charge|adjustment/i.test(row.text));
-  });
-  return rows.map(row => {
-    const amounts = row.text.match(/-\$[\d,]+(?:\.\d{2})?/g);
-    if (!amounts?.length) throw new Error('Charge amount missing; portal layout needs review');
-    return {
-      storeId: store.storeId, store: store.label, region: store.region,
-      href: orderUrl(row.href, store.storeId),
-      amountCents: moneyCents(amounts.at(-1)),
-      reported: row.text,
-      description: 'Please review this error charge and the supporting order, pickup, and delivery records. Please reverse any amount incorrectly attributed to the restaurant.',
-      approved: false,
-    };
-  });
-}
-
-export async function scanStore(page, store) {
+export async function scanStore(page, store, { maxPages = 100, timeoutMs = 20000 } = {}) {
   await navigate(page, financialsUrl(store.storeId));
+  await page.getByRole('button', { name: /^(today|yesterday|last \d+ days|this month|last month)$/i }).click();
+  await page.getByRole('menuitem', { name: 'Last 30 days', exact: true }).click();
+  await page.getByRole('button', { name: 'Last 30 days', exact: true }).waitFor({ state: 'visible' });
   await page.getByRole('button', { name: /transaction types/i }).click();
-  for (const label of [/error charge/i, /adjustment/i]) {
-    const option = page.getByRole('menuitemcheckbox', { name: label });
-    await option.waitFor({ state: 'visible' });
-    if (await option.getAttribute('aria-checked') !== 'true') await option.click();
+  const choices = page.getByRole('menuitemcheckbox');
+  await page.getByRole('menuitemcheckbox', { name: /^error charge$/i }).waitFor({ state: 'visible' });
+  for (let i = 0; i < await choices.count(); i++) {
+    const option = choices.nth(i);
+    const want = /^error charge$/i.test((await option.innerText()).trim());
+    if ((await option.getAttribute('aria-checked') === 'true') !== want) await option.click();
   }
   await page.getByRole('button', { name: 'Apply', exact: true }).click();
   const ready = () => page.waitForFunction(() => {
-    const rows = [...document.querySelectorAll('a[href*="/merchant/financials/transactions/"]')];
-    return rows.some(a => /error charge|adjustment/i.test((a.closest('tr') || a.closest('[role=row]') || a).innerText)) ||
-      /no transactions|no results found|no matching transactions/i.test(document.body.innerText);
-  }, null, { timeout: 20000 });
+    if (/no transactions|no results found|no matching transactions/i.test(document.body.innerText)) return true;
+    const table = [...document.querySelectorAll('table,[role=table]')].find(t => /Error charges/i.test(t.innerText));
+    if (!table) return false;
+    const headers = [...table.querySelectorAll('th,[role=columnheader]')].map(e => e.innerText.trim());
+    const type = headers.indexOf('Transaction type');
+    const rows = [...table.querySelectorAll('tbody tr,[role=row]')].filter(r => r.querySelector('td,[role=cell]'));
+    return type >= 0 && rows.length > 0 && rows.every(r => /^(Error charge)$/i.test(r.querySelectorAll('td,[role=cell]')[type]?.innerText.trim()));
+  }, null, { timeout: timeoutMs });
+  const snapshot = () => page.evaluate(() => {
+    const text = document.body.innerText;
+    const m = text.match(/([\d,]+)\s*[-–]\s*([\d,]+)\s+of\s+([\d,]+)\s+results/i);
+    const range = m ? m.slice(1).map(v => Number(v.replaceAll(',', ''))) : null;
+    const table = [...document.querySelectorAll('table,[role=table]')].find(t => /Error charges/i.test(t.innerText));
+    const headers = table ? [...table.querySelectorAll('th,[role=columnheader]')].map(e => e.innerText.trim()) : [];
+    const rows = table ? [...table.querySelectorAll('tbody tr,[role=row]')].filter(r => r.querySelector('td,[role=cell]')).map(tr => {
+      const cells = [...tr.querySelectorAll('td,[role=cell]')];
+      const field = name => cells[headers.indexOf(name)]?.innerText.trim();
+      return { transactionId: field('Transaction ID'), type: field('Transaction type'), date: field('Date'),
+        charge: field('Error charges'), href: tr.querySelector('a[href*="/merchant/financials/transactions/"]')?.getAttribute('href') };
+    }) : [];
+    return { range, rows, empty: /no transactions|no results found|no matching transactions/i.test(text) };
+  });
   await ready();
-  const orders = new Map();
-  const signatures = new Set();
-  for (let index = 0; index < 100; index++) {
+  const orders = new Map(), transactions = new Set();
+  let expected = null, cursor = 0;
+  for (let index = 0; index < maxPages; index++) {
     await guard(page);
-    const rows = await visibleRows(page, store);
-    const signature = rows.map(r => r.href).join('|');
-    if (signatures.has(signature)) throw new Error('Pagination repeated a page; store scan is incomplete');
-    signatures.add(signature);
-    for (const row of rows) {
-      const key = orderKey(row.href, store.storeId);
-      if (orders.has(key) && orders.get(key).amountCents !== row.amountCents) {
-        throw new Error('Multiple charge amounts for one order; inspect the charge manually');
+    const current = await snapshot();
+    if (current.empty && current.rows.length === 0) {
+      if (cursor || current.range?.[2]) throw new Error('Empty page before all transactions were read');
+      const result = []; result.coverage = { complete: true, pages: 1, expectedTransactions: 0, readTransactions: 0, dateRange: 'Last 30 days' };
+      return result;
+    }
+    if (!current.range) throw new Error('Portal result count missing; store completeness cannot be verified');
+    const [first, last, total] = current.range;
+    if (expected === null) expected = total;
+    if (total !== expected || first !== cursor + 1 || last - first + 1 !== current.rows.length || last > total) {
+      throw new Error('Pagination count changed or skipped rows; store scan is incomplete');
+    }
+    for (const row of current.rows) {
+      if (!row.transactionId || !row.href || !/^error charge$/i.test(row.type || '') || !/^-\$[\d,]+(?:\.\d{2})?$/.test(row.charge || '')) {
+        throw new Error('Error-charge columns missing or ambiguous; store scan is incomplete');
       }
-      orders.set(key, row);
+      if (transactions.has(row.transactionId)) throw new Error('Pagination repeated a transaction; store scan is incomplete');
+      transactions.add(row.transactionId);
+      const href = orderUrl(row.href, store.storeId), key = orderKey(href, store.storeId);
+      const charge = { transactionId: row.transactionId, date: row.date, amountCents: moneyCents(row.charge) };
+      const existing = orders.get(key);
+      if (existing) {
+        existing.amountCents += charge.amountCents;
+        existing.chargeTransactions.push(charge);
+      } else orders.set(key, {
+        storeId: store.storeId, store: store.label, region: store.region, href,
+        amountCents: charge.amountCents, chargeTransactions: [charge], reported: 'Error charge; inspect the order and charged items',
+        description: 'Please review this error charge and the supporting order, pickup, and delivery records. Please reverse any amount incorrectly attributed to the restaurant.',
+        approved: false,
+      });
     }
+    cursor = last;
     const next = page.getByRole('button', { name: /^(next|next page|go to next page)$/i });
-    if (!(await next.count()) || !(await next.first().isVisible()) || await next.first().isDisabled()) {
-      return [...orders.values()];
+    const canNext = await next.count() && await next.first().isVisible() && !await next.first().isDisabled();
+    if (cursor === expected) {
+      if (canNext) throw new Error('Next page conflicts with reported transaction count');
+      const result = [...orders.values()];
+      result.coverage = { complete: true, pages: index + 1, expectedTransactions: expected, readTransactions: transactions.size, dateRange: 'Last 30 days' };
+      return result;
     }
-    const previous = await page.locator('a[href*="/merchant/financials/transactions/"]').evaluateAll(a => a.map(x => x.getAttribute('href')).join('|'));
+    if (!canNext) throw new Error('Next page unavailable before all transactions were read');
     await next.first().click();
-    await page.waitForFunction(old => [...document.querySelectorAll('a[href*="/merchant/financials/transactions/"]')].map(a => a.getAttribute('href')).join('|') !== old, previous, { timeout: 20000 });
+    await page.waitForFunction(previous => {
+      const m = document.body.innerText.match(/([\d,]+)\s*[-–]\s*([\d,]+)\s+of\s+([\d,]+)\s+results/i);
+      return m && Number(m[1].replaceAll(',', '')) !== previous;
+    }, first, { timeout: timeoutMs });
     await ready();
   }
-  throw new Error('Pagination exceeded 100 pages; narrow the portal date range');
+  throw new Error('Pagination page limit reached; store scan is incomplete');
 }
 
 export async function readStatus(page) {
-  const text = await guard(page);
+  const body = await guard(page);
+  const index = body.lastIndexOf('Order:');
+  const detail = index >= 0 ? body.slice(index) : body;
+  const boundary = detail.indexOf('Delivery details');
+  const text = boundary >= 0 ? detail.slice(0, boundary) : detail;
   // Conflicting labels are unresolved instead of choosing a favorable result.
   const found = [
     ['approved', /dispute approved/i], ['denied', /dispute denied/i],
@@ -102,7 +138,10 @@ export async function readStatus(page) {
 
 export function approvedRefundCents(text) {
   // Only an explicit refund label, not the order total or disputed amount.
-  const matches = [...text.matchAll(/(?:amount refunded|refund amount|refunded amount)\s*[:\-]?\s*\$([\d,]+(?:\.\d{2})?)/gi)];
+  const matches = [
+    ...text.matchAll(/(?:amount refunded|refund amount|refunded amount|receive a credit of)\s*[:\-]?\s*\$([\d,]+(?:\.\d{2})?)/gi),
+    ...text.matchAll(/Error charge credit(?: \(includes tax\))?\s*\+\$([\d,]+(?:\.\d{2})?)/gi),
+  ];
   const cents = [...new Set(matches.map(m => moneyCents(m[1])))];
   return cents.length === 1 ? cents[0] : null;
 }

@@ -38,11 +38,11 @@ test('corrupt ledger never silently becomes empty', t => {
   writeJson(file, { version: 1, orders: { x: {} } }); assert.throws(() => readLedger(file));
 });
 test('only explicit approval is accepted and all approved rows are validated', () => {
-  assert.equal(validatePlan({ version: 1, orders: [row, { approved: false }] }, DOORDASH_STORES).length, 1);
-  assert.equal(validatePlan({ version: 1, orders: [{ ...row, approved: 'true' }] }, DOORDASH_STORES).length, 0);
-  assert.throws(() => validatePlan({ version: 1, orders: [row, row] }, DOORDASH_STORES));
-  assert.throws(() => validatePlan({ version: 1, orders: [{ ...row, store: 'TX-1' }] }, DOORDASH_STORES));
-  assert.throws(() => validatePlan({ version: 1, orders: [{ ...row, amountCents: NaN }] }, DOORDASH_STORES));
+  assert.equal(validatePlan({ version: 1, complete: true, orders: [row, { approved: false }] }, DOORDASH_STORES).length, 1);
+  assert.equal(validatePlan({ version: 1, complete: true, orders: [{ ...row, approved: 'true' }] }, DOORDASH_STORES).length, 0);
+  assert.throws(() => validatePlan({ version: 1, complete: true, orders: [row, row] }, DOORDASH_STORES));
+  assert.throws(() => validatePlan({ version: 1, complete: true, orders: [{ ...row, store: 'TX-1' }] }, DOORDASH_STORES));
+  assert.throws(() => validatePlan({ version: 1, complete: true, orders: [{ ...row, amountCents: NaN }] }, DOORDASH_STORES));
 });
 test('attempt is durable before click and confirmed submission is never repeated', async t => {
   const file = path.join(temp(t), 'ledger.json'); const ledger = readLedger(file); let clicks = 0;

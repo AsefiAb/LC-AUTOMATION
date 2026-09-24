@@ -7,7 +7,7 @@
     "scan": "node run.mjs --mode scan",
     "outcomes": "node run.mjs --mode outcomes",
     "report": "node report.mjs",
-    "test": "node --test tests/state.test.mjs tests/portal.test.mjs tests/browser.test.mjs"
+    "test": "node --test tests/state.test.mjs tests/portal.test.mjs tests/browser.test.mjs tests/scan.test.mjs"
   },
   "dependencies": {
     "exceljs": "^4.4.0",
