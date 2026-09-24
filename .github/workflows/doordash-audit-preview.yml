@@ -6,13 +6,17 @@ on:
         description: Saved audit dates, YYYY-MM-DD_YYYY-MM-DD
         required: true
         type: string
+      refresh_status:
+        description: Refresh every order status directly from DoorDash in GitHub (no browser)
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
   audit:
     if: github.event.repository.private == true && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -29,7 +33,12 @@ jobs:
         env:
           AUDIT_PERIOD: ${{ inputs.period }}
           GITHUB_TOKEN: ${{ github.token }}
-        run: python doordash/audit_summary.py --cloud-period "$AUDIT_PERIOD" --output "$RUNNER_TEMP/audit/summary.json"
+          DOORDASH_STORAGE_STATE: ${{ secrets.DOORDASH_STORAGE_STATE }}
+          REFRESH_STATUS: ${{ inputs.refresh_status }}
+        run: |
+          args=(--cloud-period "$AUDIT_PERIOD" --output "$RUNNER_TEMP/audit/summary.json")
+          if [ "$REFRESH_STATUS" = 'true' ]; then args+=(--refresh-status); fi
+          python doordash/audit_summary.py "${args[@]}"
       - name: Build workbook without opening a browser or sending email
         run: node doordash/scraper/audit-report.mjs "$RUNNER_TEMP/audit/summary.json" "$RUNNER_TEMP/audit/DoorDash Audit.xlsx"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

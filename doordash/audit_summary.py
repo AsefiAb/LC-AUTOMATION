@@ -2,11 +2,12 @@
 import argparse
 import base64
 from collections import Counter
-from datetime import date
+from datetime import date, datetime, timezone
 import json
 import os
 from pathlib import Path
 import re
+import time
 import requests
 from financial_export import cents
 
@@ -104,6 +105,7 @@ def main():
     parser.add_argument('--input')
     parser.add_argument('--cloud-period')
     parser.add_argument('--output', required=True)
+    parser.add_argument('--refresh-status', action='store_true')
     args = parser.parse_args()
     if bool(args.input) == bool(args.cloud_period):
         raise ValueError('Choose a local audit or a private cloud audit period')
@@ -119,8 +121,26 @@ def main():
             raise ValueError('Requested audit period differs from saved source')
     else:
         audit = json.loads(Path(args.input).read_text())
+    if args.refresh_status:
+        from cloud_status_check import status_client, read_status
+        client = status_client()
+        for n, order in enumerate(audit['orders'].values(), 1):
+            value = read_status(client, order['delivery_uuid'])
+            raw = value.get('disputeStatus')
+            status = {'DISPUTE_STATUS_REFUNDED': 'approved', 'DISPUTE_STATUS_DENIED': 'denied',
+                      'DISPUTE_STATUS_PENDING': 'pending'}.get(raw, 'unknown')
+            if raw == 'DISPUTE_STATUS_CREATED' and order['portal'].get('ui_verified'):
+                status = 'not_disputed'
+            order['portal'].update(status=status, raw_status=raw, approved_amount_cents=None,
+                checked_at=datetime.now(timezone.utc).isoformat(),
+                evidence='Fresh authenticated GitHub cloud read of the merchant dispute-status service')
+            if n % 50 == 0: print(f'GitHub refreshed {n}/{len(audit["orders"])} order statuses', flush=True)
+            time.sleep(.3)
+        audit['cloud_refreshed_at'] = datetime.now(timezone.utc).isoformat()
     summary = summarize(audit)
     out = Path(args.output); out.parent.mkdir(parents=True, exist_ok=True)
+    if args.refresh_status:
+        (out.parent / 'source-audit.json').write_text(json.dumps(audit), encoding='utf-8')
     out.write_text(json.dumps(summary, indent=2), encoding='utf-8')
     print(f"Audit reconciled {summary['checked_orders']} orders and {summary['transaction_count']} financial transactions; no email sent.")
 

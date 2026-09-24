@@ -5,7 +5,7 @@ import re
 import requests
 
 
-def main():
+def status_client():
     state = json.loads(os.environ['DOORDASH_STORAGE_STATE'])
     client = requests.Session()
     client.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36'
@@ -14,7 +14,10 @@ def main():
     for cookie in state.get('cookies', []):
         if cookie.get('domain', '').lstrip('.') in ('doordash.com', 'www.doordash.com', 'merchant-portal.doordash.com'):
             client.cookies.set(cookie['name'], cookie['value'], domain=cookie['domain'], path=cookie.get('path', '/'))
-    delivery = os.environ['DOORDASH_CHECK_DELIVERY_ID']
+    return client
+
+
+def read_status(client, delivery):
     if not re.fullmatch(r'[a-fA-F0-9-]{36}', delivery):
         raise ValueError('Invalid historical delivery ID')
     response = client.get('https://merchant-portal.doordash.com/teammate-experience-service/api/v1/dispute-status/' + delivery, timeout=30)
@@ -23,6 +26,11 @@ def main():
     value = response.json()
     if value.get('deliveryUuid') != delivery:
         raise RuntimeError('Status response identity mismatch')
+    return value
+
+
+def main():
+    value = read_status(status_client(), os.environ['DOORDASH_CHECK_DELIVERY_ID'])
     print('Authenticated cloud status read succeeded:', value.get('disputeStatus'))
 
 

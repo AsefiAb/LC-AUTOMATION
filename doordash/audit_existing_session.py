@@ -91,6 +91,7 @@ class ExistingTab:
                 'checked_at': datetime.now(timezone.utc).isoformat()}
 
     def outcome_from_page(self, row):
+        self.socket.settimeout(45)
         delivery = row['delivery_uuid']
         if not re.fullmatch(r'[a-fA-F0-9-]{36}', delivery) or not row['store_id'].isdigit():
             raise ValueError('Unexpected order identifier')
