@@ -4,8 +4,57 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readLedger, totals } from './state.mjs';
 
-export function buildReport(ledger, abSummary = null, reviewPlan = null, trackerSnapshot = null) {
+export function buildReport(ledger, abSummary = null, reviewPlan = null, trackerSnapshot = null, financial = null) {
   const wb = new ExcelJS.Workbook();
+  if (financial) {
+    if (financial.billing_ready !== false) throw new Error('Financial export review cannot be an AB invoice');
+    const sheet = wb.addWorksheet('Financial export review');
+    sheet.addRow(['DoorDash financial export review']);
+    sheet.addRow(['NOT AN INVOICE', 'Linked adjustments require confirmation as dispute recoveries. No AB cut is billed here.']);
+    sheet.addRow(['Reconciled at', financial.generated_at]);
+    sheet.addRow(['Tracked orders', financial.tracked_orders]);
+    sheet.addRow(['Matched orders', financial.matched_orders]);
+    sheet.addRow(['Orders with adjustments', financial.orders_with_adjustments]);
+    sheet.addRow(['Known net adjustments ($)', financial.known_net_adjustment_cents / 100]);
+    sheet.addRow(['Other store IDs excluded', financial.other_store_ids.join(', ')]);
+    sheet.addRow(['Basis', financial.basis]);
+    for (const source of financial.sources) sheet.addRow(['Source file', source.filename]);
+    sheet.columns = [{ width: 34 }, { width: 95 }];
+    sheet.getColumn(2).alignment = { wrapText: true, vertical: 'top' };
+    sheet.getRow(2).font = { bold: true, color: { argb: 'FF9C0006' } };
+    sheet.getRow(2).height = 34;
+    sheet.getRow(9).height = 34;
+    sheet.getCell('B7').numFmt = '$#,##0.00;[Red]($#,##0.00)';
+    const orders = wb.addWorksheet('Financial order review');
+    orders.addRow(['Store', 'Delivery ID', 'Ledger status', 'Matched', 'Adjustment count',
+      'Known net adjustments ($)', 'Amounts complete', 'Review needed']);
+    const transactions = wb.addWorksheet('Financial transactions');
+    transactions.addRow(['Store', 'Delivery ID', 'Transaction ID', 'Local timestamp', 'Payout date',
+      'Type', 'Description', 'Error charge ($)', 'Adjustment ($)']);
+    for (const order of financial.orders) {
+      orders.addRow([order.store, order.delivery_uuid, order.ledger_status, order.matched ? 'Yes' : 'No',
+        order.adjustment_count, order.known_net_adjustment_cents / 100,
+        order.adjustment_amount_complete ? 'Yes' : 'No', order.issues.join('; ')]);
+      for (const tx of order.transactions) transactions.addRow([order.store, order.delivery_uuid,
+        tx['DoorDash transaction ID'], tx['Timestamp local time'], tx['Payout date'], tx['Transaction type'],
+        tx.Description, tx.charge_cents === null ? null : tx.charge_cents / 100,
+        tx.adjustment_cents === null ? null : tx.adjustment_cents / 100]);
+    }
+    for (const tab of [orders, transactions]) {
+      tab.views = [{ state: 'frozen', ySplit: 1 }];
+      tab.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      tab.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF243746' } };
+      tab.getRow(1).alignment = { wrapText: true }; tab.getRow(1).height = 34;
+      tab.columns.forEach(c => { c.width = 23; });
+      tab.autoFilter = { from: { row: 1, column: 1 }, to: { row: tab.rowCount, column: tab.columnCount } };
+    }
+    orders.getColumn(2).width = 40; orders.getColumn(8).width = 90;
+    orders.getColumn(8).alignment = { wrapText: true };
+    orders.getColumn(6).numFmt = '$#,##0.00;[Red]($#,##0.00)';
+    transactions.getColumn(2).width = 40; transactions.getColumn(3).width = 40;
+    transactions.getColumn(8).numFmt = '$#,##0.00;[Red]($#,##0.00)';
+    transactions.getColumn(9).numFmt = '$#,##0.00;[Red]($#,##0.00)';
+  }
   if (trackerSnapshot) {
     const all = wb.addWorksheet('All platform totals');
     all.addRow(['Reported platform totals']);
@@ -106,8 +155,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const summaryPath = path.join(root, 'reports', 'biweekly-summary.json');
   const reviewPath = path.join(data, 'review-plan.json');
   const snapshotPath = path.join(data, 'tracker-snapshot.json');
+  const financialPath = path.join(data, 'financial-reconciliation.json');
   await buildReport(ledger, fs.existsSync(summaryPath) ? JSON.parse(fs.readFileSync(summaryPath)) : null,
     fs.existsSync(reviewPath) ? JSON.parse(fs.readFileSync(reviewPath)) : null,
-    fs.existsSync(snapshotPath) ? JSON.parse(fs.readFileSync(snapshotPath)) : null).xlsx.writeFile(out);
+    fs.existsSync(snapshotPath) ? JSON.parse(fs.readFileSync(snapshotPath)) : null,
+    fs.existsSync(financialPath) ? JSON.parse(fs.readFileSync(financialPath)) : null).xlsx.writeFile(out);
   console.log(`Saved ${out}`);
 }

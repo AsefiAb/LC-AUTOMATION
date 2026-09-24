@@ -99,3 +99,20 @@ test('multi-platform snapshot is retained separately from overlapping live DoorD
   assert.equal(wb.getWorksheet('Historical platform stores').rowCount, 2);
   assert.equal(wb.getWorksheet('By store').getCell('H2').value, 40);
 });
+
+test('financial review shows actual signed adjustments without adding them to verified savings', () => {
+  const financial = { billing_ready: false, generated_at: '2026-09-23', tracked_orders: 1, matched_orders: 1,
+    orders_with_adjustments: 1, known_net_adjustment_cents: 350, other_store_ids: ['999'], basis: 'Not verified savings',
+    sources: [{ filename: 'financial.csv' }], orders: [{ store: 'CO-1', delivery_uuid: 'delivery', ledger_status: 'observed',
+      matched: true, adjustment_count: 2, known_net_adjustment_cents: 350, adjustment_amount_complete: false,
+      issues: ['Confirm refund'], transactions: [{ 'DoorDash transaction ID': 'tx', 'Timestamp local time': '2026-09-22',
+        'Payout date': '2026-09-23', 'Transaction type': 'Adjustment', Description: 'NULL', charge_cents: null, adjustment_cents: -50 }] }] };
+  const ledger = { version: 1, orders: { [row.key]: { ...row, status: 'observed' } } };
+  const wb = buildReport(ledger, null, null, null, financial);
+  assert.equal(wb.getWorksheet('Financial export review').getCell('B7').value, 3.5);
+  assert.equal(wb.getWorksheet('Financial transactions').getCell('I2').value, -.5);
+  assert.equal(wb.getWorksheet('Financial transactions').getCell('H2').value, null);
+  assert.equal(wb.getWorksheet('Financial order review').getCell('G2').value, 'No');
+  assert.equal(wb.getWorksheet('By store').getCell('H2').value, 0);
+  assert.throws(() => buildReport(ledger, null, null, null, { ...financial, billing_ready: true }));
+});

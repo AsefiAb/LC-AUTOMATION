@@ -10,6 +10,7 @@ import io
 import json
 from collections import defaultdict
 from decimal import Decimal, InvalidOperation
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 import zipfile
@@ -119,6 +120,29 @@ def reconcile(rows, ledger):
             'orders': results}
 
 
+def validate_reconciliation(value, ledger):
+    """Reject stale or altered saved previews before generating their workbook."""
+    if value.get('version') != 1 or value.get('billing_ready') is not False:
+        raise ValueError('Financial preview must be explicitly non-billable')
+    if not value.get('sources') or not value.get('generated_at'):
+        raise ValueError('Financial preview source provenance is missing')
+    rows = [transaction for order in value.get('orders', []) for transaction in order['transactions']]
+    seen = set()
+    for row in rows:
+        key = row['DoorDash transaction ID']
+        if key in seen:
+            raise ValueError('Duplicate transaction in saved financial preview')
+        seen.add(key)
+        if row['charge_cents'] != cents(row['Error charges']) or row['adjustment_cents'] != cents(row['Adjustments']):
+            raise ValueError('Financial preview amount differs from source')
+    calculated = reconcile(rows, ledger)
+    for key in ('tracked_orders', 'matched_orders', 'orders_with_adjustments',
+                'known_net_adjustment_cents', 'orders'):
+        if value.get(key) != calculated[key]:
+            raise ValueError('Financial preview no longer matches saved history; import a fresh export')
+    return value
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--export', action='append', required=True, dest='exports')
@@ -127,7 +151,8 @@ def main():
     args = parser.parse_args()
     rows, sources, duplicates = read_exports(args.exports)
     result = reconcile(rows, json.loads(Path(args.ledger).read_text(encoding='utf-8')))
-    result.update(sources=sources, transaction_count=len(rows), duplicate_transactions_removed=duplicates)
+    result.update(sources=sources, transaction_count=len(rows), duplicate_transactions_removed=duplicates,
+                  generated_at=datetime.now(timezone.utc).isoformat())
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(result, indent=2), encoding='utf-8')

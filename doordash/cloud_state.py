@@ -34,6 +34,8 @@ def restore():
     (data / 'ledger.json').write_text(json.dumps(saved['ledger']), encoding='utf-8')
     if saved.get('tracker_snapshot'):
         (data / 'tracker-snapshot.json').write_text(json.dumps(saved['tracker_snapshot']), encoding='utf-8')
+    if saved.get('financial_reconciliation'):
+        (data / 'financial-reconciliation.json').write_text(json.dumps(saved['financial_reconciliation']), encoding='utf-8')
     for day, receipt in saved.get('email_receipts', {}).items():
         from datetime import date
         if date.fromisoformat(day).isoformat() != day:
@@ -52,6 +54,8 @@ def persist():
              'email_receipts': {p.stem: json.loads(p.read_text(encoding='utf-8')) for p in (data / 'email-receipts').glob('*.json')}}
     snapshot = data / 'tracker-snapshot.json'
     if snapshot.exists(): saved['tracker_snapshot'] = json.loads(snapshot.read_text(encoding='utf-8'))
+    financial = data / 'financial-reconciliation.json'
+    if financial.exists(): saved['financial_reconciliation'] = json.loads(financial.read_text(encoding='utf-8'))
     result = request('PUT', '/contents/state.json', json={'branch': BRANCH, 'sha': sha,
         'message': 'Checkpoint DoorDash history and delivery receipts',
         'content': base64.b64encode(json.dumps(saved).encode()).decode()})

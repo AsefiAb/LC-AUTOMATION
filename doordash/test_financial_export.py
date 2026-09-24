@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from financial_export import FIELDS, read_exports, reconcile
+from financial_export import FIELDS, read_exports, reconcile, validate_reconciliation
 
 
 class FinancialExportTests(unittest.TestCase):
@@ -66,6 +66,35 @@ class FinancialExportTests(unittest.TestCase):
         for value in ['NaN', 'Infinity', '1.001', 'garbage']:
             with self.subTest(value=value), self.assertRaises(ValueError):
                 self.load([self.record(adjustment=value)])
+
+    def preview(self):
+        rows, sources, _ = self.load([self.record(), self.record('a', 'Adjustment', 'NULL', '4.00')])
+        result = reconcile(rows, self.ledger())
+        result.update(sources=sources, generated_at='2026-09-23T23:00:00+00:00')
+        return result
+
+    def test_preview_validates_source_and_keeps_non_billable(self):
+        self.assertFalse(validate_reconciliation(self.preview(), self.ledger())['billing_ready'])
+
+    def test_changed_ledger_and_changed_amount_block_saved_preview(self):
+        ledger = self.ledger()
+        ledger['orders']['order']['status'] = 'approved'
+        with self.assertRaisesRegex(ValueError, 'no longer matches'):
+            validate_reconciliation(self.preview(), ledger)
+        preview = self.preview()
+        preview['orders'][0]['transactions'][1]['adjustment_cents'] = 1000
+        with self.assertRaisesRegex(ValueError, 'differs from source'):
+            validate_reconciliation(preview, self.ledger())
+
+    def test_billable_or_altered_total_preview_rejected(self):
+        preview = self.preview()
+        preview['billing_ready'] = True
+        with self.assertRaises(ValueError):
+            validate_reconciliation(preview, self.ledger())
+        preview = self.preview()
+        preview['known_net_adjustment_cents'] += 1
+        with self.assertRaises(ValueError):
+            validate_reconciliation(preview, self.ledger())
 
 
 if __name__ == '__main__':

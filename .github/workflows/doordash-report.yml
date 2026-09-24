@@ -4,6 +4,11 @@ on:
     - cron: '0 15,16 * * 2'
   workflow_dispatch:
     inputs:
+      source:
+        description: Live portal check or private saved-export preview (cannot email)
+        type: choice
+        default: portal
+        options: [portal, saved-export-preview]
       send_email:
         description: Send tracker only after a complete live outcome check
         type: boolean
@@ -41,7 +46,7 @@ jobs:
             echo "run=$(python biweekly_summary.py --schedule-gate)" >> "$GITHUB_OUTPUT"
           fi
       - name: Check cloud merchant connection
-        if: steps.gate.outputs.run == 'true'
+        if: steps.gate.outputs.run == 'true' && inputs.source != 'saved-export-preview'
         env:
           DOORDASH_STORAGE_STATE: ${{ secrets.DOORDASH_STORAGE_STATE }}
         run: |
@@ -60,22 +65,40 @@ jobs:
         run: |
           npm ci --prefix scraper --no-audit --no-fund
           python -m pip install requests==2.32.5 tzdata==2025.3
-          cd scraper
-          npx playwright install --with-deps chromium
+      - name: Install merchant browser
+        if: steps.gate.outputs.run == 'true' && inputs.source != 'saved-export-preview'
+        run: cd scraper && npx playwright install --with-deps chromium
       - name: Restore persistent history
         if: steps.gate.outputs.run == 'true'
         id: history
         run: python cloud_state.py restore
       - name: Scan merchant stores without submitting disputes
-        if: steps.gate.outputs.run == 'true'
+        if: steps.gate.outputs.run == 'true' && inputs.source != 'saved-export-preview'
         env:
           DOORDASH_STORAGE_STATE: ${{ secrets.DOORDASH_STORAGE_STATE }}
         run: xvfb-run -a node scraper/run.mjs --mode scan
       - name: Refresh saved order outcomes
-        if: steps.gate.outputs.run == 'true'
+        if: steps.gate.outputs.run == 'true' && inputs.source != 'saved-export-preview'
         env:
           DOORDASH_STORAGE_STATE: ${{ secrets.DOORDASH_STORAGE_STATE }}
         run: xvfb-run -a node scraper/run.mjs --mode outcomes
+      - name: Validate saved export preview
+        if: steps.gate.outputs.run == 'true' && inputs.source == 'saved-export-preview'
+        env:
+          SEND_EMAIL: ${{ inputs.send_email }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from financial_export import validate_reconciliation
+          if os.environ['SEND_EMAIL'] == 'true':
+              raise ValueError('Saved export preview cannot send an earnings email')
+          data = Path(os.environ['DOORDASH_DATA_DIR'])
+          value = validate_reconciliation(json.loads((data/'financial-reconciliation.json').read_text()),
+              json.loads((data/'ledger.json').read_text()))
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
+              out.write(f"Saved export preview: {value['matched_orders']} of {value['tracked_orders']} tracked orders matched. No live portal refresh and no email.\n")
+          PY
       - name: Build tracker
         if: steps.gate.outputs.run == 'true'
         id: tracker
@@ -84,13 +107,13 @@ jobs:
           node scraper/report.mjs
           python -c "from pathlib import Path; import os; p=max(Path('reports').glob('DoorDash-Tracker-*.xlsx'), key=lambda p:p.stat().st_mtime); open(os.environ['GITHUB_OUTPUT'],'a').write('path='+str(p.resolve())+'\n')"
       - name: Email tracker
-        if: steps.gate.outputs.run == 'true' && (inputs.send_email || github.event_name == 'schedule')
+        if: steps.gate.outputs.run == 'true' && inputs.source != 'saved-export-preview' && (inputs.send_email || github.event_name == 'schedule')
         env:
           CAAZ_GMAIL_APP_PASS: ${{ secrets.CAAZ_GMAIL_APP_PASS }}
           REPORT_FILE: ${{ steps.tracker.outputs.path }}
         run: python email_report.py "$REPORT_FILE" --summary reports/biweekly-summary.json
       - name: Persist outcomes and uncertain delivery receipts
-        if: always() && steps.history.outcome == 'success'
+        if: always() && steps.history.outcome == 'success' && inputs.source != 'saved-export-preview'
         run: python cloud_state.py persist
       - name: Keep private diagnostic reports briefly
         if: always()

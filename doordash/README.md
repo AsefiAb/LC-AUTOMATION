@@ -60,7 +60,16 @@ blocks sending an inaccurate AB bill. A preview and issues list remain available
 
 ## GitHub operation
 
+For a workbook from the saved financial export, run **DoorDash outcomes and email**
+with `source=saved-export-preview` and `send_email=false`. This mode runs entirely
+on GitHub, validates the export against retained history, and downloads a private
+workbook artifact. It skips merchant login, does not install or launch a browser,
+does not update the live ledger, and cannot email an earnings claim. The workbook
+adds financial export, order review and transaction sheets alongside the existing
+multi-platform totals. Saved figures are dated historical data, not a live refresh.
+
 Run **DoorDash outcomes and email** with `send_email=false` for a read-only check.
+Leave `source=portal` for this live connection check.
 It restores history, scans store charges, verifies previous outcomes/refund amounts,
 creates the spreadsheet and retains private artifacts for three days.
 Set `DOORDASH_AUTOMATION_ENABLED=true` only after a successful live reconciliation.
