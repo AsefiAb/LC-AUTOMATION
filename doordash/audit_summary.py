@@ -139,8 +139,7 @@ def main():
         audit['cloud_refreshed_at'] = datetime.now(timezone.utc).isoformat()
     summary = summarize(audit)
     out = Path(args.output); out.parent.mkdir(parents=True, exist_ok=True)
-    if args.refresh_status:
-        (out.parent / 'source-audit.json').write_text(json.dumps(audit), encoding='utf-8')
+    (out.parent / 'source-audit.json').write_text(json.dumps(audit), encoding='utf-8')
     out.write_text(json.dumps(summary, indent=2), encoding='utf-8')
     print(f"Audit reconciled {summary['checked_orders']} orders and {summary['transaction_count']} financial transactions; no email sent.")
 

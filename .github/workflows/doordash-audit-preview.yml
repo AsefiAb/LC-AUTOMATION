@@ -10,6 +10,10 @@ on:
         description: Refresh every order status directly from DoorDash in GitHub (no browser)
         type: boolean
         default: false
+      verify_financials:
+        description: Compare all stores and financial pages with the saved export directly in GitHub
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -39,9 +43,15 @@ jobs:
           args=(--cloud-period "$AUDIT_PERIOD" --output "$RUNNER_TEMP/audit/summary.json")
           if [ "$REFRESH_STATUS" = 'true' ]; then args+=(--refresh-status); fi
           python doordash/audit_summary.py "${args[@]}"
+      - name: Verify complete current financial source against the export
+        if: inputs.verify_financials == true
+        env:
+          DOORDASH_STORAGE_STATE: ${{ secrets.DOORDASH_STORAGE_STATE }}
+        run: python doordash/cloud_transactions.py --audit "$RUNNER_TEMP/audit/source-audit.json" --output "$RUNNER_TEMP/audit/financial-verification.json"
       - name: Build workbook without opening a browser or sending email
         run: node doordash/scraper/audit-report.mjs "$RUNNER_TEMP/audit/summary.json" "$RUNNER_TEMP/audit/DoorDash Audit.xlsx"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
           name: doordash-audit-${{ github.run_id }}
           path: ${{ runner.temp }}/audit/
