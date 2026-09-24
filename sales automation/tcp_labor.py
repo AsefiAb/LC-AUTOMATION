@@ -114,6 +114,7 @@ def summarize(report_date, hours, worksegments, jobs, expected_stores):
                 counts['segments_with_positive_or_zero_valid_rate'] += 1
             except ValueError:
                 counts['segments_without_usable_rate'] += 1
+                issues.append(store + ': missing usable wage rate.')
     if seen != set(work_ids):
         issues.append('Calculated hours and work-segment IDs do not reconcile.')
     if not selected_work:
@@ -129,10 +130,18 @@ def summarize(report_date, hours, worksegments, jobs, expected_stores):
                        'segments': t['segments'], 'rate_segments': t['rate_segments'],
                        'base_wage_estimate': money(t['base_wage_estimate'])
                        if t['segments'] and t['rate_segments'] == t['segments'] else None})
+    global_issues = [issue for issue in issues
+                     if not any(issue.startswith(store + ':') for store in expected)]
+    for row in stores:
+        row['issues'] = sorted(set(global_issues + [issue.split(': ', 1)[1]
+            for issue in issues if issue.startswith(row['store'] + ':')]))
+        row['complete'] = not row['issues']
+        if not row['complete']:
+            row['base_wage_estimate'] = None
     return {'report_date': report_date, 'source': 'TCP', 'complete': not issues,
             'issues': sorted(set(issues)), 'stores': stores, 'counts': dict(counts),
             'labor_cost_verified': False,
-            'cost_note': 'Base wage estimate only: hours times returned rate, without overtime premiums, salary allocation, taxes or benefits. Not used as actual labor cost or percentage.',
+            'cost_note': 'Base wage estimate only: hours times returned rate, without overtime premiums, salary allocation, taxes or benefits. Not verified actual labor cost.',
             'date_basis': 'All hours assigned to the shift clock-in date. Business-day alignment with Altametrics needs reconciliation.'}
 
 

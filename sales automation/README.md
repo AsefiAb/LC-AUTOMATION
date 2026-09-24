@@ -3,18 +3,34 @@
 Daily sales delivery is enabled in **AsefiAb/LC-AUTOMATION**. The original
 **AsefiAb/salesautomation** daily workflow is disabled; keep that repo for history.
 
-The source is **Altametrics**: Product Net sales, Actual Total transactions,
-and Punched Labor %. TCP remains separate for payroll.
+**Altametrics** supplies Product Net sales and Actual Total transactions.
+**TCP** supplies calculated worked hours and the returned wage rate for each
+shift. The daily GitHub workflow combines these sources for the same date and
+store, and displays `Labor 35.46% (TCP estimate)` on each complete store line.
 
-Every sales email includes labor on each store line. Positive labor percentages
-come from the selected store/date's Daily Activity Report, Actual Total row,
-Punched Labor % column. A store with sales but a reported zero labor percentage
-now displays `Labor unavailable (Altametrics shows 0%; needs verification)`.
-The source zero is retained in the audit, not presented as verified labor cost.
-Zero sales separately displays `N/A (zero sales)`.
-The September 23 Arizona Labor Summary and Detail by Department report had no
-employee labor rows for stores 01, 03, 04 and 05. This display change does not
-repair missing source punches or switch to scheduled labor percentages.
+The formula is `sum(worked hours × returned rate) / net sales × 100`.
+This is a base-wage estimate, **not verified actual payroll labor cost**:
+it excludes overtime premiums, salary allocation, taxes and benefits. All hours
+of an overnight shift use its clock-in date; alignment with the Altametrics
+business-day cutoff still needs verification. These limitations appear in the
+plain-text email. Payroll exports and tip calculations are unaffected.
+
+Open punches, zero-hour closed shifts, missing rates or calculated hours, and
+stores without shifts display a specific `Labor unavailable (...)` reason.
+Partial store wage totals are never published as a percentage. Unreconciled
+segment IDs or unmapped stores invalidate all labor estimates. An unavailable
+labor estimate does not prevent valid sales/transactions from being sent.
+Zero sales displays `N/A (zero sales)`; failed TCP access never falls back to
+Altametrics zero or stale labor. The original Altametrics percentage is retained
+in `store-totals.json`; `tcp-labor.json` records per-store completeness and issues
+without individual wage rates. Both are kept in the private run artifact.
+
+`config.json` selects `labor_source: TCP base wage estimate`. GitHub needs the
+existing TCP_CLIENT_ID, TCP_CLIENT_SECRET and TCP_API_KEY secrets in addition
+to Altametrics, OneDrive and Gmail credentials. Use a `preview` run to inspect
+the email and all three workbooks without uploads or sends. A `preflight` run
+reports any incomplete labor stores even though delivery can label them and
+send the remaining sales data.
 
 ## Verified September 23, 2026
 

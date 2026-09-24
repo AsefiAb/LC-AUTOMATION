@@ -1,6 +1,6 @@
 """Regional sales source -> existing OneDrive workbooks -> Gmail.
 
-Altametrics supplies sales, transaction counts and Punched Labor %.
+Altametrics supplies sales and transactions; TCP supplies a labeled wage estimate.
 Use --preflight to inspect setup, --preview to prepare without writing/sending.
 """
 import argparse
@@ -48,6 +48,8 @@ def setup_issues(config, require_email=True):
     keys = ['MS_CLIENT_ID', 'MS_REFRESH_TOKEN']
     if source == 'Altametrics':
         keys += altametrics.missing_secrets()
+        if config.get('labor_source') == 'TCP base wage estimate':
+            keys += ['TCP_CLIENT_ID', 'TCP_CLIENT_SECRET', 'TCP_API_KEY']
     elif source == 'TCP':
         if not config.get('tcp_metrics'):
             issues.append('TCP has no confirmed sales/transaction/actual labor-cost endpoint configured.')
@@ -140,6 +142,41 @@ def validate(day, metric_rows, labor, config):
     return output
 
 
+def apply_tcp_estimate(day, rows, labor):
+    """Never replace missing TCP data with zero or publish partial store costs."""
+    expected = {row['store'] for row in rows}
+    hours = {row['store']: row for row in labor.get('stores', [])}
+    problem = None
+    if labor.get('report_date') != day or any(row['report_date'] != day for row in rows):
+        problem = 'TCP dates do not match the sales date'
+    elif len(hours) != len(labor.get('stores', [])) or set(hours) != expected:
+        problem = 'TCP store coverage did not reconcile'
+    output = []
+    for row in rows:
+        h = hours.get(row['store'], {})
+        reasons = [problem] if problem else list(h.get('issues', []))
+        if not reasons and not h.get('complete'):
+            reasons = ['TCP hours or rates are incomplete']
+        cost = None
+        if not reasons:
+            try:
+                cost = tcp_labor.decimal(h.get('base_wage_estimate'))
+                if not h.get('segments') or h.get('rate_segments') != h['segments']:
+                    raise ValueError('Incomplete wage rates')
+                if cost == 0 and tcp_labor.decimal(h.get('total_hours')) > 0:
+                    raise ValueError('Zero cost with worked hours')
+            except ValueError:
+                reasons = ['TCP wage rates are incomplete']
+                cost = None
+        sales = tcp_labor.decimal(row['sales'])
+        output.append({**row, 'labor_source': 'TCP base wage estimate',
+            'labor_pct': tcp_labor.money(cost / sales * 100) if cost is not None and sales else None,
+            'labor_status': 'unavailable' if reasons else ('zero_sales' if not sales else 'estimate'),
+            'labor_issues': reasons, 'base_wage_estimate': tcp_labor.money(cost) if cost is not None else None,
+            'total_hours': h.get('total_hours') if not reasons else None})
+    return output
+
+
 def email_message(day, rows, attachments, config):
     msg = EmailMessage()
     msg['From'] = config['sender']
@@ -155,12 +192,19 @@ def email_message(day, rows, attachments, config):
                 continue
             if row['labor_pct'] is not None:
                 pct = row['labor_pct'] + '%'
+                if row.get('labor_source') == 'TCP base wage estimate':
+                    pct += ' (TCP estimate)'
             elif Decimal(row['sales']) == 0:
                 pct = 'N/A (zero sales)'
             else:
-                pct = 'unavailable (Altametrics shows 0%; needs verification)'
+                reasons = row.get('labor_issues') or ['Altametrics shows 0%; needs verification']
+                pct = 'unavailable (' + '; '.join(reasons) + ')'
             lines.append(f"{row['store']}: Sales ${row['sales']} | Transactions {row['transactions']} | Labor {pct} | Goal {row['labor_goal_pct']}%")
         lines.append('')
+    if any(row.get('labor_source') == 'TCP base wage estimate' for row in rows):
+        lines.extend(['TCP estimate = calculated worked hours × returned wage rate ÷ Altametrics net sales. '
+            'Excludes overtime premiums, salary allocation, taxes and benefits. '
+            'Overnight hours use the clock-in date; alignment with the sales business day is not yet verified.', ''])
     lines.extend(['Thanks,', 'AB'])
     msg.set_content('\n'.join(lines))
     for path in attachments:
@@ -267,6 +311,14 @@ def run(day, config, preview=False):
             raise ReportError('A previous delivery is unresolved; inspect its receipt before retrying.')
     if config.get('source') == 'Altametrics':
         rows = altametrics.validate(day, altametrics.fetch(day, config), config)
+        if config.get('labor_source') == 'TCP base wage estimate':
+            try:
+                labor = tcp_labor.fetch(day, config)
+            except (tcp_labor.InspectionError, ValueError):
+                # Do not leak API responses or replace a failed request with old data.
+                labor = {'report_date': day, 'stores': [], 'complete': False,
+                         'issues': ['TCP labor request failed; no estimate available.']}
+            rows = apply_tcp_estimate(day, rows, labor)
     else:
         labor = tcp_labor.fetch(day, config)
         rows = validate(day, fetch_metrics(day, config), labor, config)
@@ -274,6 +326,8 @@ def run(day, config, preview=False):
     prepared = []
     output = FOLDER / 'reports' / day
     output.mkdir(parents=True, exist_ok=True)
+    if config.get('labor_source') == 'TCP base wage estimate' or config.get('source') == 'TCP':
+        (output / 'tcp-labor.json').write_text(json.dumps(labor, indent=2), encoding='utf-8')
     for book in config['workbooks']:
         snapshot = drive.read(book['url'])
         region_rows = [row for row in rows if row['region'] == book['region']]
@@ -353,12 +407,16 @@ def main():
                 output.write_text(json.dumps(rows, indent=2), encoding='utf-8')
             except (altametrics.AltametricsError, ValueError) as exc:
                 issues.append(str(exc))
-        if config.get('source') == 'TCP' and all(os.environ.get(k) for k in ('TCP_CLIENT_ID', 'TCP_CLIENT_SECRET', 'TCP_API_KEY')):
-            labor = tcp_labor.fetch(day, config)
-            output = FOLDER / 'reports' / ('tcp-labor-' + day + '.json')
-            output.parent.mkdir(parents=True, exist_ok=True)
-            output.write_text(json.dumps(labor, indent=2), encoding='utf-8')
-            issues.extend(labor['issues'])
+        if (config.get('source') == 'TCP' or config.get('labor_source') == 'TCP base wage estimate') and all(
+                os.environ.get(k) for k in ('TCP_CLIENT_ID', 'TCP_CLIENT_SECRET', 'TCP_API_KEY')):
+            try:
+                labor = tcp_labor.fetch(day, config)
+                output = FOLDER / 'reports' / ('tcp-labor-' + day + '.json')
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_text(json.dumps(labor, indent=2), encoding='utf-8')
+                issues.extend(labor['issues'])
+            except (tcp_labor.InspectionError, ValueError):
+                issues.append('TCP labor request failed; no estimate available.')
         print(json.dumps({'report_date': day, 'ready': not issues, 'issues': issues}, indent=2))
         return 1 if issues else 0
     run(day, config, args.preview)

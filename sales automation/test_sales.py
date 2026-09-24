@@ -77,6 +77,8 @@ class LaborTests(unittest.TestCase):
         args[1][0]['segments'][0]['rate'] = None
         report = tcp_labor.summarize(*args)
         self.assertIsNone(report['stores'][0]['base_wage_estimate'])
+        self.assertFalse(report['complete'])
+        self.assertIn('missing usable wage rate.', report['stores'][0]['issues'])
 
     def test_open_and_zero_hour_shifts_block_complete(self):
         for condition in ('open', 'zero'):
@@ -101,6 +103,91 @@ class LaborTests(unittest.TestCase):
         for bad in ('NaN', 'Infinity', '-1', '1:99', None):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 tcp_labor.duration(bad)
+
+    def test_open_punch_invalidates_only_its_store_including_partial_cost(self):
+        args = labor_fixture()
+        args[4].append('3356-02')
+        args[3]['2'] = {'locationName': '3356-02'}
+        closed = copy.deepcopy(args[1][0]['segments'][0])
+        closed.update(recordId=2, jobCode={'jobCodeId': 2})
+        opened = {**closed, 'recordId': 3, 'timeOut': None}
+        args[1][0]['segments'].extend([closed, opened])
+        args[2].extend({'id': n, 'timeIn': closed['timeIn']} for n in (2, 3))
+        report = tcp_labor.summarize(*args)
+        self.assertTrue(report['stores'][0]['complete'])
+        self.assertEqual(report['stores'][0]['base_wage_estimate'], '80.00')
+        self.assertFalse(report['stores'][1]['complete'])
+        self.assertIsNone(report['stores'][1]['base_wage_estimate'])
+
+    def test_unreconciled_segment_blocks_every_cost(self):
+        args = labor_fixture()
+        args[2].append({'id': 99, 'timeIn': args[0] + 'T10:00:00'})
+        report = tcp_labor.summarize(*args)
+        self.assertFalse(report['stores'][0]['complete'])
+        self.assertIsNone(report['stores'][0]['base_wage_estimate'])
+
+
+class HybridTests(unittest.TestCase):
+    def fixture(self):
+        labor = tcp_labor.summarize(*labor_fixture())
+        rows = [{'store': '3356-01', 'report_date': '2026-09-16', 'region': 'CO',
+                 'sales': '1000.00', 'transactions': 100, 'labor_goal_pct': '23.50',
+                 'labor_pct': '0.00', 'source_labor_pct': '0.00'}]
+        return rows, labor
+
+    def test_base_wages_divided_by_sales_labeled_not_actual(self):
+        rows, labor = self.fixture()
+        result = daily.apply_tcp_estimate('2026-09-16', rows, labor)
+        self.assertEqual(result[0]['labor_pct'], '8.00')
+        self.assertEqual(result[0]['source_labor_pct'], '0.00')
+        self.assertEqual(rows[0]['labor_pct'], '0.00')
+        body = daily.email_message('2026-09-16', result, [], CONFIG).get_body().get_content()
+        self.assertIn('Labor 8.00% (TCP estimate)', body)
+        self.assertIn('Excludes overtime premiums', body)
+        self.assertIn('clock-in date', body)
+
+    def test_bad_date_coverage_rate_or_open_punch_never_publishes_partial_percent(self):
+        for condition in ('date', 'sales_date', 'missing', 'duplicate', 'rate', 'open'):
+            with self.subTest(condition=condition):
+                rows, labor = self.fixture()
+                if condition == 'date': labor['report_date'] = '2026-09-15'
+                if condition == 'sales_date': rows[0]['report_date'] = '2026-09-15'
+                if condition == 'missing': labor['stores'] = []
+                if condition == 'duplicate': labor['stores'] *= 2
+                if condition == 'rate': labor['stores'][0]['base_wage_estimate'] = None
+                if condition == 'open': labor['stores'][0].update(complete=False, issues=['open punch.'])
+                result = daily.apply_tcp_estimate('2026-09-16', rows, labor)
+                self.assertIsNone(result[0]['labor_pct'])
+                self.assertIsNone(result[0]['base_wage_estimate'])
+                self.assertTrue(result[0]['labor_issues'])
+
+    def test_zero_sales_undefined_and_rounding(self):
+        rows, labor = self.fixture()
+        rows[0]['sales'] = '0.00'
+        self.assertIsNone(daily.apply_tcp_estimate('2026-09-16', rows, labor)[0]['labor_pct'])
+        rows[0]['sales'] = '4808.54'
+        labor['stores'][0]['base_wage_estimate'] = '1705.20'
+        self.assertEqual(daily.apply_tcp_estimate('2026-09-16', rows, labor)[0]['labor_pct'], '35.46')
+
+    def test_preview_fetches_both_sources_and_never_writes_or_sends(self):
+        rows, labor = self.fixture()
+        config = copy.deepcopy(CONFIG)
+        config['stores'] = [config['stores'][0]]
+        config['workbooks'] = [config['workbooks'][0]]
+        with tempfile.TemporaryDirectory() as folder, patch.object(daily, 'FOLDER', Path(folder)), \
+             patch.object(daily, 'setup_issues', return_value=[]), \
+             patch.object(daily.altametrics, 'fetch'), \
+             patch.object(daily.altametrics, 'validate', return_value=rows), \
+             patch.object(daily.tcp_labor, 'fetch', return_value=labor) as tcp, \
+             patch.object(daily, 'OneDrive') as drive, patch.object(daily, 'deliver') as send:
+            drive.return_value.read.return_value = {'content': sample_workbook()}
+            daily.run('2026-09-16', config, preview=True)
+            tcp.assert_called_once_with('2026-09-16', config)
+            drive.return_value.write.assert_not_called()
+            send.assert_not_called()
+            saved = Path(folder) / 'reports/2026-09-16'
+            self.assertTrue((saved / 'tcp-labor.json').exists())
+            self.assertIn('8.00% (TCP estimate)', (saved / 'email-preview.eml').read_text())
 
 
 class WorkbookTests(unittest.TestCase):
@@ -213,7 +300,7 @@ class DailyTests(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True):
             issues = daily.setup_issues(CONFIG)
             self.assertIn('Missing secret: COLORADO_USERNAME', issues)
-            self.assertFalse(any('TCP_CLIENT' in i for i in issues))
+            self.assertIn('Missing secret: TCP_CLIENT_ID', issues)
 
     def test_pacific_yesterday_across_dst_and_utc_boundary(self):
         self.assertEqual(daily.report_date(datetime(2026, 9, 17, 2, tzinfo=timezone.utc), 'America/Los_Angeles'), '2026-09-15')
