@@ -11,6 +11,32 @@ from report_package import store_spec, issue_reconciliation
 
 
 class CurrentADPRosterTests(unittest.TestCase):
+    def test_store_sections_preserve_staff_and_do_not_double_count_subtotals(self):
+        def person(eid, last, roles, eligible, reg, ot, tips):
+            return dict(store='3356-02', geid=eid, first_name='Test', last_name=last,
+                        roles=roles, eligible=eligible, regular_hours=reg,
+                        overtime_hours=ot, tips=tips)
+        rows = [person('1', 'Amanager', ['assistant manager'], False, '40', '2', '0'),
+                person('2', 'Zcrew', ['crew'], True, '20', '0', '40'),
+                person('3', 'Bleader', ['crew leader'], True, '30', '1', '62'),
+                person('4', 'Unknown', ['unassigned'], False, '0', '0', '0')]
+        data = dict(rows=rows, period={'start_date':'2026-09-08', 'end_date':'2026-09-21'},
+                    stores=[dict(store='3356-02', gateway_tips='102', eligible_crew_hours='51')])
+        spec = store_spec(data, '3356-02')
+        self.assertEqual([p['geid'] for p in spec['rows']], ['3', '2', '1', '4'])
+        self.assertEqual([spec['values'][i-1][0] for i in spec['subtotal_rows']],
+                         ['CREW TOTAL', 'MANAGERS TOTAL', 'UNASSIGNED TOTAL'])
+        self.assertEqual(spec['formulas']['F9'], '=SUM(F7:F8)')
+        self.assertGreater(spec['employee_rows'][2], spec['subtotal_rows'][0])
+        self.assertEqual(spec['formulas'][f'F{spec["total_row"]}'],
+                         '=' + '+'.join(f'F{i}' for i in spec['subtotal_rows']))
+        for i, p in zip(spec['employee_rows'], spec['rows']):
+            self.assertEqual(spec['values'][i-1][0], p['geid'])
+        # Empty sections must produce zero, never a backward SUM that includes a header/subtotal.
+        data['rows'] = [rows[0]]
+        spec = store_spec(data, '3356-02')
+        self.assertEqual(spec['formulas'][f'F{spec["subtotal_rows"][0]}'], '=0')
+
     def setUp(self):
         self.summary = {'employees': [
             {'geid': '1', 'first_name': 'Robin', 'last_name': 'De La Cruz', 'stores': ['3910-01', '3910-02']},

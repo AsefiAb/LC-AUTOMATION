@@ -2,7 +2,11 @@
 
 ADP uploads are **CSV only**: Texas `EPIZKT00.CSV` (company ZKT), Arizona
 `EPIFNC00.CSV` (FNC), and Colorado `EPIFND00.CSV` (FND). Store and issues
-workbooks remain `.xlsx` supporting reports. Never rename an Excel workbook
+workbooks remain `.xlsx` supporting reports. Each store sheet lists crew and Crew
+Leaders alphabetically by last name, followed by crew totals, then managers
+(including assistant and co-managers) with their own totals. Store totals combine
+the section totals once. Unassigned roles appear separately for review if present.
+Never rename an Excel workbook
 to `.CSV`; the generator writes native CSV and verifies its filename, contents,
 control rows, employee identities, and decimal amounts before attaching it.
 Each run includes `ADP import checks.txt` with the period and CSV batch totals.

@@ -5,7 +5,7 @@ import os
 from decimal import Decimal
 from pathlib import Path
 
-from allocate_tips import allocate, cents, decimal_text
+from allocate_tips import allocate, cents, decimal_text, MANAGEMENT
 from adp_roster import build_imports, FILES
 from payroll_email_summary import summarize_rows, LABELS, date_label, regional_people
 
@@ -42,23 +42,50 @@ def store_spec(data, sid):
     values = [[sid, '', '', date_label(data['period']), '', ''],
               ['Gateway tips', '', 'Eligible crew hours', '', 'Tips per crew hour', ''],
               [float(store['gateway_tips']), '', float(store['eligible_crew_hours']), '', None, ''],
-              ['Tips go only to crew and crew leaders. Managers receive zero tips.', '', '', '', '', ''],
-              STORE_FIELDS]
+              ['Tips go only to crew and crew leaders. Managers receive zero tips.', '', '', '', '', '']]
     if any(e['store'] == sid for e in data.get('source_exceptions', [])):
         values[3][0] = 'Provisional tips: an unverified shift is excluded. See the regional payroll issues workbook.'
     formulas = {'E3': '=IF(C3>0,A3/C3,0)'}
-    for i, p in enumerate(rows, 6):
-        values.append([p['geid'], p['first_name'] + ' ' + p['last_name'], float(p['regular_hours']),
-                       float(p['overtime_hours']), None, float(p['tips'])])
-        formulas[f'E{i}'] = f'=ROUND(C{i}+D{i},2)'
-    last = len(values)
-    values.append(['TOTAL', '', None, None, None, None])
+    manager_ids = {r['geid'] for r in data['rows'] if set(r['roles']) & MANAGEMENT}
+    crew = [r for r in rows if r['eligible']]
+    managers = [r for r in rows if r['geid'] in manager_ids]
+    other = [r for r in rows if not r['eligible'] and r['geid'] not in manager_ids]
+    groups = [('CREW AND CREW LEADERS', 'CREW TOTAL', crew),
+              ('MANAGERS', 'MANAGERS TOTAL', managers)]
+    if other:
+        groups.append(('UNASSIGNED ROLE — REVIEW', 'UNASSIGNED TOTAL', other))
+    employee_rows, header_rows, section_rows, subtotal_rows, ordered = [], [], [], [], []
+    for title, total_label, people in groups:
+        if section_rows:
+            values.append([''] * 6)
+        values.append([title, '', '', '', '', ''])
+        section_rows.append(len(values))
+        values.append(STORE_FIELDS)
+        header_rows.append(len(values))
+        first = len(values) + 1
+        for p in people:
+            values.append([p['geid'], p['first_name'] + ' ' + p['last_name'], float(p['regular_hours']),
+                           float(p['overtime_hours']), None, float(p['tips'])])
+            i = len(values)
+            employee_rows.append(i)
+            ordered.append(p)
+            formulas[f'E{i}'] = f'=ROUND(C{i}+D{i},2)'
+        last = len(values)
+        values.append([total_label, '', None, None, None, None])
+        subtotal_rows.append(len(values))
+        for c in 'CDEF':
+            formulas[f'{c}{len(values)}'] = f'=SUM({c}{first}:{c}{last})' if people else '=0'
+    values.append([''] * 6)
+    values.append(['STORE TOTAL', '', None, None, None, None])
+    total_row = len(values)
     for c in 'CDEF':
-        formulas[f'{c}{last + 1}'] = f'=SUM({c}6:{c}{last})' if rows else '=0'
+        formulas[f'{c}{total_row}'] = '=' + '+'.join(f'{c}{r}' for r in subtotal_rows)
     values.extend([['Hours: TCP calculated regular and overtime. Tips: Gateway store pool.', '', '', '', '', ''],
                    ['Tip share = store tips / eligible crew hours × employee hours; pennies reconcile to the store pool.', '', '', '', '', '']])
     return {'store': sid, 'filename': f'{sid} {date_label(data["period"])}.xlsx',
-            'values': values, 'formulas': formulas, 'rows': rows, 'total_row': last + 1}
+            'values': values, 'formulas': formulas, 'rows': ordered, 'total_row': total_row,
+            'employee_rows': employee_rows, 'header_rows': header_rows,
+            'section_rows': section_rows, 'subtotal_rows': subtotal_rows}
 
 
 def write_store_on_runner(spec, folder):
@@ -82,15 +109,21 @@ def write_store_on_runner(spec, folder):
     for cell, formula in spec['formulas'].items():
         sheet[cell] = formula
     sheet.sheet_view.showGridLines = False
-    sheet.freeze_panes = 'C6'
+    sheet.freeze_panes = 'C7'
     for i, width in enumerate([14, 36, 22, 21, 22, 17], 1):
         sheet.column_dimensions[get_column_letter(i)].width = width
     for i in range(1, sheet.max_row + 1):
         sheet.row_dimensions[i].height = 22
-    for r in [5, spec['total_row']]:
+    for r in spec['header_rows'] + spec['subtotal_rows'] + [spec['total_row']]:
         for cell in sheet[r]:
             cell.fill = PatternFill('solid', fgColor='E8EDF2')
             cell.font = Font(name='Arial', size=11, bold=True)
+    for r in spec['section_rows']:
+        sheet.merge_cells(start_row=r, start_column=1, end_row=r, end_column=6)
+        sheet.cell(r, 1).fill = PatternFill('solid', fgColor='163C53')
+        sheet.cell(r, 1).font = Font(name='Arial', size=11, bold=True, color='FFFFFF')
+    for r in spec['subtotal_rows'] + [spec['total_row']]:
+        sheet.merge_cells(start_row=r, start_column=1, end_row=r, end_column=2)
     for row in sheet.iter_rows(min_row=6, max_row=spec['total_row'], min_col=3):
         for cell in row:
             cell.number_format = '$#,##0.00' if cell.column == 6 else '0.00'
@@ -98,7 +131,7 @@ def write_store_on_runner(spec, folder):
     sheet['C3'].number_format = '0.00'
     sheet['E3'].number_format = '0.000000'
     sheet['A1'].font = Font(name='Arial', size=14, bold=True)
-    sheet.auto_filter.ref = f'A5:F{spec["total_row"] - 1}'
+    # A whole-sheet sort/filter could move staff across subtotal boundaries.
     book.save(folder / spec['filename'])
 
 
@@ -262,16 +295,20 @@ def verify_stores(data, folder):
                 raise ValueError('Store workbook must have one Payroll sheet')
             sheet = book.active
             sheet.calculate_dimension(force=True)
-            if [c.value for c in sheet[5]] != STORE_FIELDS:
-                raise ValueError('Store columns differ from the approved layout')
-            for i, row in enumerate(spec['rows'], 6):
+            for i in spec['header_rows']:
+                if [c.value for c in sheet[i]] != STORE_FIELDS:
+                    raise ValueError('Store columns differ from the approved layout')
+            for i, row in zip(spec['employee_rows'], spec['rows']):
                 actual = [c.value for c in sheet[i]]
                 if (str(actual[0]), actual[1]) != (row['geid'], row['first_name'] + ' ' + row['last_name']):
                     raise ValueError('Store employee identity mismatch')
                 for column, key in [(2, 'regular_hours'), (3, 'overtime_hours'), (5, 'tips')]:
                     if Decimal(str(actual[column])) != Decimal(row[key]):
                         raise ValueError('Store employee hours/tips mismatch')
-            if sheet.cell(spec['total_row'], 1).value != 'TOTAL' or sheet.max_row != len(spec['values']):
+            for i in spec['section_rows'] + spec['subtotal_rows']:
+                if sheet.cell(i, 1).value != spec['values'][i - 1][0]:
+                    raise ValueError('Store crew/manager section mismatch')
+            if sheet.cell(spec['total_row'], 1).value != 'STORE TOTAL' or sheet.max_row != len(spec['values']):
                 raise ValueError('Unexpected store employee coverage')
             if Decimal(str(sheet['A3'].value)) != Decimal(store['gateway_tips']):
                 raise ValueError('Wrong Gateway pool')
