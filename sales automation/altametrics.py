@@ -404,6 +404,10 @@ def validate(day, records, config):
         if transactions != transactions.to_integral_value():
             raise ValueError('Transaction count is not integral')
         result.append({**store, 'report_date': day, 'sales': f'{sales:.2f}', 'transactions': int(transactions),
-                       'labor_pct': f'{pct:.2f}' if sales else None, 'total_hours': None,
+                       # An open store showing zero labor is not evidence of free
+                       # labor: September's detailed reports exposed missing punches.
+                       'labor_pct': f'{pct:.2f}' if sales and pct > 0 else None, 'total_hours': None,
+                       'labor_status': 'zero_sales' if not sales else ('available' if pct > 0 else 'unverified_zero'),
+                       'source_labor_pct': f'{pct:.2f}',
                        'labor_source': 'Altametrics Punched Labor %'})
     return result

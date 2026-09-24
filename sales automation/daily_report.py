@@ -153,7 +153,12 @@ def email_message(day, rows, attachments, config):
         for row in rows:
             if row['region'] != region['region']:
                 continue
-            pct = row['labor_pct'] + '%' if row['labor_pct'] is not None else 'N/A (zero sales)'
+            if row['labor_pct'] is not None:
+                pct = row['labor_pct'] + '%'
+            elif Decimal(row['sales']) == 0:
+                pct = 'N/A (zero sales)'
+            else:
+                pct = 'unavailable (Altametrics shows 0%; needs verification)'
             lines.append(f"{row['store']}: Sales ${row['sales']} | Transactions {row['transactions']} | Labor {pct} | Goal {row['labor_goal_pct']}%")
         lines.append('')
     lines.extend(['Thanks,', 'AB'])

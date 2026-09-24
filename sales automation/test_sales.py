@@ -198,6 +198,16 @@ class DailyTests(unittest.TestCase):
         metrics[0]['sales'] = '0'
         self.assertIsNone(daily.validate('2026-09-16', metrics, labor, config)[0]['labor_pct'])
 
+    def test_email_distinguishes_unverified_labor_from_zero_sales(self):
+        config, metrics, labor = self.fixture()
+        rows = daily.validate('2026-09-16', metrics, labor, config)
+        rows[0]['labor_pct'] = None
+        rows[1].update(labor_pct=None, sales='0.00')
+        body = daily.email_message('2026-09-16', rows, [], config).get_body().get_content()
+        self.assertIn('Labor unavailable (Altametrics shows 0%; needs verification)', body)
+        self.assertIn('Labor N/A (zero sales)', body)
+        self.assertIn('Labor 20.00%', body)
+
     def test_altametrics_is_explicit_and_uses_its_own_credentials(self):
         self.assertEqual(CONFIG['source'], 'Altametrics')
         with patch.dict(os.environ, {}, clear=True):

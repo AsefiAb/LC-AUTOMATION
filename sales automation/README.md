@@ -6,6 +6,16 @@ Daily sales delivery is enabled in **AsefiAb/LC-AUTOMATION**. The original
 The source is **Altametrics**: Product Net sales, Actual Total transactions,
 and Punched Labor %. TCP remains separate for payroll.
 
+Every sales email includes labor on each store line. Positive labor percentages
+come from the selected store/date's Daily Activity Report, Actual Total row,
+Punched Labor % column. A store with sales but a reported zero labor percentage
+now displays `Labor unavailable (Altametrics shows 0%; needs verification)`.
+The source zero is retained in the audit, not presented as verified labor cost.
+Zero sales separately displays `N/A (zero sales)`.
+The September 23 Arizona Labor Summary and Detail by Department report had no
+employee labor rows for stores 01, 03, 04 and 05. This display change does not
+repair missing source punches or switch to scheduled labor percentages.
+
 ## Verified September 23, 2026
 
 - All 18 stores passed two complete reads through their dedicated local browsers.

@@ -36,6 +36,16 @@ class AltametricsTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 altametrics.validate(record['date'], records, config)
 
+    def test_open_store_zero_labor_is_unverified_not_actual_zero(self):
+        config = {'stores': [{'store': '3356-01', 'region': 'CO'}]}
+        record = {'store': '3356-01', 'date': '2026-09-23', 'sales': '4808.54', 'transactions': 200, 'labor_pct': '0.00'}
+        row, = altametrics.validate(record['date'], [record], config)
+        self.assertIsNone(row['labor_pct'])
+        self.assertEqual(row['source_labor_pct'], '0.00')
+        self.assertEqual(row['labor_status'], 'unverified_zero')
+        record['labor_pct'] = '17.81'
+        self.assertEqual(altametrics.validate(record['date'], [record], config)[0]['labor_pct'], '17.81')
+
 
 class CloudCompatibilityTests(unittest.IsolatedAsyncioTestCase):
     async def test_overlay_handling_is_limited_to_authenticated_dashboard(self):
