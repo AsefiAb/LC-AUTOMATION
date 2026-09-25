@@ -92,7 +92,8 @@ existing cells, or unexpected workbook layouts stop delivery. All three files
 are validated before uploads, and uploaded cells are read back for verification.
 
 The email contains Colorado, Texas, and Arizona headings, one line per store
-with Sales, Transactions, Labor, and Goal, then `Thanks,` and `AB`. It has three
+with Labor and Goal, then `Thanks,` and `AB`. Sales and transaction figures are
+in the attached workbooks only. The email has three
 regional Excel attachments and subject `Daily Sales & Labor YYYY-MM-DD`.
 
 From: **ab@caazllc.com**

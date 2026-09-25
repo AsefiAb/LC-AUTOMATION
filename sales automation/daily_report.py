@@ -187,7 +187,7 @@ def email_message(day, rows, attachments, config):
     msg['Cc'] = ', '.join(config['cc'])
     msg['Subject'] = 'Daily Sales & Labor ' + day
     msg['Message-ID'] = '<sales-' + day + '@caazllc.com>'
-    lines = []
+    lines = ['Sales and transactions are in the attached Excel workbooks.', '']
     for region in config['workbooks']:
         lines.append(region['name'])
         for row in rows:
@@ -202,7 +202,7 @@ def email_message(day, rows, attachments, config):
             else:
                 reasons = row.get('labor_issues') or ['Altametrics shows 0%; needs verification']
                 pct = 'unavailable (' + '; '.join(reasons) + ')'
-            lines.append(f"{row['store']}: Sales ${row['sales']} | Transactions {row['transactions']} | Labor {pct} | Goal {row['labor_goal_pct']}%")
+            lines.append(f"{row['store']}: Labor {pct} | Goal {row['labor_goal_pct']}%")
         lines.append('')
     if any(row.get('labor_source') == 'TCP wage estimate' for row in rows):
         cutoffs = sorted({row['labor_cutoff_hour_local'] for row in rows if row.get('labor_source') == 'TCP wage estimate'})
