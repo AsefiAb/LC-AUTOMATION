@@ -47,3 +47,24 @@ before a store's estimate can be published. Taxes and benefits are excluded.
 
 The audited settings are a snapshot; rerun the settings audit after changes.
 Payroll/tip allocation rules are separate and unchanged by this sales update.
+
+## Full GitHub preview after the change
+
+[September 23 preview](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/36076501165)
+passed at commit cbb5d90, including all 62 tests. It collected all 18 stores,
+prepared three regional Excel attachments, and created the plain-text email.
+All 15 available percentages were independently recalculated from saved wage
+and net-sales totals; the three MIME attachments matched the generated files.
+No email was sent and no OneDrive workbook was uploaded by this preview.
+
+Remaining source exceptions in this snapshot:
+
+- 3759-03: open punches; labor unavailable.
+- 3910-01: missing usable wage rate; labor unavailable.
+- 3356-05: zero sales and no returned shifts; labor N/A.
+
+3759-01 now includes 114.78 hours, matching the native TCP reporting-day total.
+Estimated wages are $2,004.20 versus native $2,004.19 (one-cent component rounding);
+both give 41.68% on $4,808.54 net sales. This verifies that example, not that
+all Altametrics and TCP source records are identical. High or differing figures
+still require checking the underlying punches and rates.
