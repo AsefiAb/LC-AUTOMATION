@@ -195,7 +195,7 @@ def email_message(day, rows, attachments, config):
                 continue
             if row['labor_pct'] is not None:
                 pct = row['labor_pct'] + '%'
-                if row.get('labor_source') in ('TCP base wage estimate', 'TCP wage estimate'):
+                if row.get('labor_source') == 'TCP base wage estimate':
                     pct += ' (TCP estimate)'
             elif Decimal(row['sales']) == 0:
                 pct = 'N/A (zero sales)'
@@ -207,9 +207,9 @@ def email_message(day, rows, attachments, config):
     if any(row.get('labor_source') == 'TCP wage estimate' for row in rows):
         cutoffs = sorted({row['labor_cutoff_hour_local'] for row in rows if row.get('labor_source') == 'TCP wage estimate'})
         boundary = ', '.join(f'{hour:02d}:00' for hour in cutoffs)
-        lines.extend(['TCP estimate = (regular wages + overtime wages) / Altametrics net sales. '
+        lines.extend(['Labor is calculated from TCP recorded regular and overtime wages divided by Altametrics net sales. '
             'Includes crew and management. Business day starts at ' + boundary + ' store local time; whole shifts follow their start time. '
-            'TCP punches, rates and rounding can differ from Altametrics. Excludes taxes and benefits.', ''])
+            'Excludes taxes and benefits; figures can change when timecards or rates are corrected.', ''])
     elif any(row.get('labor_source') == 'TCP base wage estimate' for row in rows):
         lines.extend(['TCP estimate = calculated worked hours × returned wage rate ÷ Altametrics net sales. '
             'Excludes overtime premiums, salary allocation, taxes and benefits. '

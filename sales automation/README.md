@@ -6,7 +6,8 @@ Daily sales delivery is enabled in **AsefiAb/LC-AUTOMATION**. The original
 **Altametrics** supplies Product Net sales and Actual Total transactions.
 **TCP** supplies calculated worked hours and the returned wage rate for each
 shift. The daily GitHub workflow combines these sources for the same date and
-store, and displays `Labor 35.46% (TCP estimate)` on each complete store line.
+store, and displays `Labor 29.28% | Goal 23.50%` on each complete store line.
+One source note below the stores explains the TCP wage calculation and its limits.
 
 The formula is `(regular wages + overtime wages) / net sales x 100`.
 It includes crew and management. All 18 stores' Altametrics settings were
@@ -16,8 +17,12 @@ Whole shifts follow their start time; the cutoff never deletes worked hours.
 TCP supplies the calculated regular/OT split; this adapter does not recalculate
 payroll overtime. Each segment's regular and overtime costs are rounded to cents.
 
-This remains a **TCP estimate**: TCP punches, rates and rounding can differ from
-Altametrics. Taxes and benefits are excluded. An unverified OT2 multiplier or
+This is calculated labor based on TCP's recorded hours and rates, not finalized
+payroll expense. September 24 percentages were reconciled against TCP's native
+Estimated Wages report: all 17 numeric percentages matched, and the zero-sales
+store remained N/A. TCP punches, rates and rounding can differ from Altametrics,
+and later timecard corrections can change results. Taxes and benefits are excluded.
+An unverified OT2 multiplier or
 nonzero salary/accrual allocation blocks the affected store pending reconciliation.
 See [LABOR_VERIFICATION.md](LABOR_VERIFICATION.md) for the source figures and limits.
 Payroll exports and tip calculations are unaffected.

@@ -59,7 +59,9 @@ class AltametricsFormulaTests(unittest.TestCase):
         rows = [{**CONFIG['stores'][0], 'report_date': args[0], 'sales': '1000', 'transactions': 10}]
         rows = daily_report.apply_tcp_estimate(args[0], rows, labor)
         body = daily_report.email_message(args[0], rows, [], CONFIG).get_body().get_content()
-        self.assertIn('8.50% (TCP estimate)', body)
+        self.assertIn('Labor 8.50% | Goal', body)
+        self.assertNotIn('(TCP estimate)', body)
+        self.assertIn('TCP recorded regular and overtime wages', body)
         self.assertIn('Includes crew and management', body)
         self.assertIn('04:00', body)
         self.assertNotIn('Excludes overtime premiums', body)
