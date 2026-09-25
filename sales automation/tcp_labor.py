@@ -4,7 +4,7 @@ import json
 import re
 import sys
 from collections import Counter
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from urllib.parse import urlencode
@@ -54,22 +54,33 @@ def collect(client, kind, params):
     raise InspectionError('TCP pagination limit reached.')
 
 
-def summarize(report_date, hours, worksegments, jobs, expected_stores):
-    """Assign overnight shifts to clock-in day, consistent with the payroll adapter."""
+def business_date(value, cutoff_hour):
+    stamp = datetime.fromisoformat(str(value))
+    if stamp.tzinfo is not None:
+        raise ValueError('TCP timestamp has an unexpected timezone offset.')
+    return (stamp - timedelta(hours=cutoff_hour)).date().isoformat()
+
+
+def summarize(report_date, hours, worksegments, jobs, expected_stores, *, cutoff_hour=0, settings=None):
+    """Use all worked roles and TCP's calculated regular/OT split, never recompute payroll."""
+    if type(cutoff_hour) is not int or not 0 <= cutoff_hour <= 23:
+        raise ValueError('Invalid labor cutoff hour.')
     expected = set(expected_stores)
+    if settings is not None and set(settings) != expected:
+        raise ValueError('Altametrics costing settings do not cover every store.')
     issues = []
     totals = {store: {'regular': Decimal(0), 'ot1': Decimal(0), 'ot2': Decimal(0),
-                      'base_wage_estimate': Decimal(0), 'segments': 0,
+                      'base_wage_estimate': Decimal(0), 'wage_estimate': Decimal(0), 'segments': 0,
                       'rate_segments': 0} for store in expected}
     counts = Counter()
-    selected_work = [s for s in worksegments if str(s.get('timeIn', ''))[:10] == report_date]
+    selected_work = [s for s in worksegments if business_date(s.get('timeIn'), cutoff_hour) == report_date]
     work_ids = [str(s.get('id')) for s in selected_work]
     if len(work_ids) != len(set(work_ids)):
         issues.append('Duplicate TCP work segments.')
     seen = set()
     for person in hours:
         for segment in person.get('segments') or []:
-            if str(segment.get('timeIn', ''))[:10] != report_date:
+            if business_date(segment.get('timeIn'), cutoff_hour) != report_date:
                 continue
             sid = str(segment.get('recordId'))
             if sid == 'None' or sid in seen:
@@ -111,6 +122,17 @@ def summarize(report_date, hours, worksegments, jobs, expected_stores):
                     raise ValueError('Zero rate with worked hours.')
                 target['rate_segments'] += 1
                 target['base_wage_estimate'] += sum(vals) * rate
+                if settings is not None:
+                    rules = settings[store]
+                    cost = Decimal(money(vals[0] * rate))
+                    for value, key in zip(vals[1:], ('overtime1_multiplier', 'overtime2_multiplier')):
+                        if value:
+                            multiplier = rules.get(key)
+                            if multiplier is None or decimal(multiplier) < 1:
+                                issues.append(store + ': overtime multiplier is not verified.')
+                                continue
+                            cost += Decimal(money(value * rate * decimal(multiplier)))
+                    target['wage_estimate'] += cost
                 counts['segments_with_positive_or_zero_valid_rate'] += 1
             except ValueError:
                 counts['segments_without_usable_rate'] += 1
@@ -124,10 +146,16 @@ def summarize(report_date, hours, worksegments, jobs, expected_stores):
         t = totals[store]
         if not t['segments']:
             issues.append(store + ': no worked segments; zero labor is not assumed.')
+        if settings is not None:
+            # Nonzero salary/accrual needs reconciliation to TCP salaried records
+            # before adding it, otherwise it could count the same wages twice.
+            if decimal(settings[store]['daily_salary']) or decimal(settings[store]['daily_accrual']):
+                issues.append(store + ': salary or accrual allocation needs reconciliation.')
         stores.append({'store': store, 'regular_hours': money(t['regular']),
                        'ot_hours': money(t['ot1'] + t['ot2']),
                        'total_hours': money(t['regular'] + t['ot1'] + t['ot2']),
                        'segments': t['segments'], 'rate_segments': t['rate_segments'],
+                       'wage_estimate': money(t['wage_estimate']) if settings is not None else None,
                        'base_wage_estimate': money(t['base_wage_estimate'])
                        if t['segments'] and t['rate_segments'] == t['segments'] else None})
     global_issues = [issue for issue in issues
@@ -138,26 +166,45 @@ def summarize(report_date, hours, worksegments, jobs, expected_stores):
         row['complete'] = not row['issues']
         if not row['complete']:
             row['base_wage_estimate'] = None
+            row['wage_estimate'] = None
     return {'report_date': report_date, 'source': 'TCP', 'complete': not issues,
             'issues': sorted(set(issues)), 'stores': stores, 'counts': dict(counts),
+            'cost_model': 'altametrics_wage_formula' if settings is not None else 'base_wages',
+            'cutoff_hour_local': cutoff_hour, 'scope': 'all_worked_roles',
             'labor_cost_verified': False,
-            'cost_note': 'Base wage estimate only: hours times returned rate, without overtime premiums, salary allocation, taxes or benefits. Not verified actual labor cost.',
-            'date_basis': 'All hours assigned to the shift clock-in date. Business-day alignment with Altametrics needs reconciliation.'}
+            'cost_note': ('All worked roles, including management; regular wages plus configured OT wages. Uses TCP calculated hours/rates, which can differ from Altametrics punches and rounding. Salary/accrual and unknown OT rates block affected stores; taxes/benefits excluded.' if settings is not None else 'Base wage estimate only: hours times returned rate, without overtime premiums, salary allocation, taxes or benefits. Not verified actual labor cost.'),
+            'date_basis': f'Whole shifts follow the local clock-in date after subtracting {cutoff_hour} hours. No worked hours are truncated.'}
 
 
 def fetch(report_date, config):
     day = date.fromisoformat(report_date)
+    settings = None
+    cutoff = 0
+    if config.get('labor_source') == 'TCP wage estimate':
+        source = json.loads((Path(__file__).parent / config['labor_settings_file']).read_text())
+        settings = {s['store']: s for s in source['stores']}
+        if len(settings) != len(source['stores']):
+            raise ValueError('Duplicate store labor settings.')
+        cutoffs = {s['cutoff_hour_local'] for s in settings.values()}
+        if len(cutoffs) != 1:
+            raise ValueError('Different store business-day boundaries need separate queries.')
+        cutoff = cutoffs.pop()
+        if type(cutoff) is not int or not 0 <= cutoff <= 23:
+            raise ValueError('Invalid labor cutoff hour.')
+    start = datetime.combine(day, datetime.min.time()) + timedelta(hours=cutoff)
+    stop = start + timedelta(days=1) - timedelta(seconds=1)
     client = TCP()
     client.authenticate()
     jobs = collect(client, 'jobcodes', {})
-    hours = collect(client, 'hours', {'startDate': report_date,
-        'stopDate': (day + timedelta(days=1)).isoformat(), 'includeRate': 'true',
+    hours = collect(client, 'hours', {'startDate': (day - timedelta(days=1)).isoformat(),
+        'stopDate': (day + timedelta(days=2)).isoformat(), 'includeRate': 'true',
         'includeJobCode': 'true', 'includeOverlapping': 'false'})
-    work = collect(client, 'worksegments', {'startDate': report_date + 'T00:00:00',
-        'stopDate': report_date + 'T23:59:59', 'includeSegmentTime': 'timeIn',
+    work = collect(client, 'worksegments', {'startDate': start.isoformat(),
+        'stopDate': stop.isoformat(), 'includeSegmentTime': 'timeIn',
         'sortByWorkSegmentId': 'true'})
     return summarize(report_date, hours, work,
-        {str(j['jobCodeId']): j for j in jobs}, [s['store'] for s in config['stores']])
+        {str(j['jobCodeId']): j for j in jobs}, [s['store'] for s in config['stores']],
+        cutoff_hour=cutoff, settings=settings)
 
 
 if __name__ == '__main__':

@@ -1,0 +1,168 @@
+{
+  "verified_date": "2026-09-24",
+  "audit_url": "https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/36075765148",
+  "stores": [
+    {
+      "store": "3356-01",
+      "cutoff_hour_local": 4,
+      "overtime1_multiplier": "1.50",
+      "daily_salary": "0.00",
+      "daily_salary_hours": "0:00",
+      "daily_accrual": "0.00",
+      "source": "Altametrics Store Admin"
+    },
+    {
+      "store": "3356-02",
+      "cutoff_hour_local": 4,
+      "overtime1_multiplier": "1.50",
+      "daily_salary": "0.00",
+      "daily_salary_hours": "0:00",
+      "daily_accrual": "0.00",
+      "source": "Altametrics Store Admin"
+    },
+    {
+      "store": "3356-03",
+      "cutoff_hour_local": 4,
+      "overtime1_multiplier": "1.50",
+      "daily_salary": "0.00",
+      "daily_salary_hours": "0:00",
+      "daily_accrual": "0.00",
+      "source": "Altametrics Store Admin"
+    },
+    {
+      "store": "3356-04",
+      "cutoff_hour_local": 4,
+      "overtime1_multiplier": "1.50",
+      "daily_salary": "0.00",
+      "daily_salary_hours": "0:00",
+      "daily_accrual": "0.00",
+      "source": "Altametrics Store Admin"
+    },
+    {
+      "store": "3356-05",
+      "cutoff_hour_local": 4,
+      "overtime1_multiplier": "1.50",
+      "daily_salary": "0.00",
+      "daily_salary_hours": "0:00",
+      "daily_accrual": "0.00",
+      "source": "Altametrics Store Admin"
+    },
+    {
+      "store": "3356-06",
+      "cutoff_hour_local": 4,
+      "overtime1_multiplier": "1.50",
+      "daily_salary": "0.00",
+      "daily_salary_hours": "0:00",
+      "daily_accrual": "0.00",
+      "source": "Altametrics Store Admin"
+    },
+    {
+      "store": "3356-07",
+      "cutoff_hour_local": 4,
+      "overtime1_multiplier": "1.50",
+      "daily_salary": "0.00",
+      "daily_salary_hours": "0:00",
+      "daily_accrual": "0.00",
+      "source": "Altametrics Store Admin"
+    },
+    {
+      "store": "3759-01",
+      "cutoff_hour_local": 4,
+      "overtime1_multiplier": "1.50",
+      "daily_salary": "0.00",
+      "daily_salary_hours": "0:00",
+      "daily_accrual": "0.00",
+      "source": "Altametrics Store Admin"
+    },
+    {
+      "store": "3759-02",
+      "cutoff_hour_local": 4,
+      "overtime1_multiplier": "1.50",
+      "daily_salary": "0.00",
+      "daily_salary_hours": "0:00",
+      "daily_accrual": "0.00",
+      "source": "Altametrics Store Admin"
+    },
+    {
+      "store": "3759-03",
+      "cutoff_hour_local": 4,
+      "overtime1_multiplier": "1.50",
+      "daily_salary": "0.00",
+      "daily_salary_hours": "0:00",
+      "daily_accrual": "0.00",
+      "source": "Altametrics Store Admin"
+    },
+    {
+      "store": "3759-04",
+      "cutoff_hour_local": 4,
+      "overtime1_multiplier": "1.50",
+      "daily_salary": "0.00",
+      "daily_salary_hours": "0:00",
+      "daily_accrual": "0.00",
+      "source": "Altametrics Store Admin"
+    },
+    {
+      "store": "3759-05",
+      "cutoff_hour_local": 4,
+      "overtime1_multiplier": "1.50",
+      "daily_salary": "0.00",
+      "daily_salary_hours": "0:00",
+      "daily_accrual": "0.00",
+      "source": "Altametrics Store Admin"
+    },
+    {
+      "store": "3759-06",
+      "cutoff_hour_local": 4,
+      "overtime1_multiplier": "1.50",
+      "daily_salary": "0.00",
+      "daily_salary_hours": "0:00",
+      "daily_accrual": "0.00",
+      "source": "Altametrics Store Admin"
+    },
+    {
+      "store": "3759-07",
+      "cutoff_hour_local": 4,
+      "overtime1_multiplier": "1.50",
+      "daily_salary": "0.00",
+      "daily_salary_hours": "0:00",
+      "daily_accrual": "0.00",
+      "source": "Altametrics Store Admin"
+    },
+    {
+      "store": "3910-01",
+      "cutoff_hour_local": 4,
+      "overtime1_multiplier": "1.50",
+      "daily_salary": "0.00",
+      "daily_salary_hours": "0:00",
+      "daily_accrual": "0.00",
+      "source": "Altametrics Store Admin"
+    },
+    {
+      "store": "3910-02",
+      "cutoff_hour_local": 4,
+      "overtime1_multiplier": "1.50",
+      "daily_salary": "0.00",
+      "daily_salary_hours": "0:00",
+      "daily_accrual": "0.00",
+      "source": "Altametrics Store Admin"
+    },
+    {
+      "store": "3910-03",
+      "cutoff_hour_local": 4,
+      "overtime1_multiplier": "1.50",
+      "daily_salary": "0.00",
+      "daily_salary_hours": "0:00",
+      "daily_accrual": "0.00",
+      "source": "Altametrics Store Admin"
+    },
+    {
+      "store": "3910-04",
+      "cutoff_hour_local": 4,
+      "overtime1_multiplier": "1.50",
+      "daily_salary": "0.00",
+      "daily_salary_hours": "0:00",
+      "daily_accrual": "0.00",
+      "source": "Altametrics Store Admin"
+    }
+  ]
+}

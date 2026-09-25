@@ -16,7 +16,7 @@
   "run_hour": 8,
   "source_repository": "AsefiAb/salesautomation",
   "workbook_sales_rounding": "whole_dollars",
-  "labor_source": "TCP base wage estimate",
+  "labor_source": "TCP wage estimate",
   "stores": [
     {
       "store": "3356-01",
@@ -146,5 +146,6 @@
       "url": "https://1drv.ms/x/c/9ea0fa299251ed46/IQACWtuM_tRlTbsImmvjtar0ATOxlK0YTCI0xeS0a-DCUNE?e=pMypfw"
     }
   ],
-  "tcp_metrics": null
+  "tcp_metrics": null,
+  "labor_settings_file": "labor_settings.json"
 }

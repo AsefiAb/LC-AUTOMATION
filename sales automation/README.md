@@ -8,12 +8,19 @@ Daily sales delivery is enabled in **AsefiAb/LC-AUTOMATION**. The original
 shift. The daily GitHub workflow combines these sources for the same date and
 store, and displays `Labor 35.46% (TCP estimate)` on each complete store line.
 
-The formula is `sum(worked hours × returned rate) / net sales × 100`.
-This is a base-wage estimate, **not verified actual payroll labor cost**:
-it excludes overtime premiums, salary allocation, taxes and benefits. All hours
-of an overnight shift use its clock-in date; alignment with the Altametrics
-business-day cutoff still needs verification. These limitations appear in the
-plain-text email. Payroll exports and tip calculations are unaffected.
+The formula is `(regular wages + overtime wages) / net sales x 100`.
+It includes crew and management. All 18 stores' Altametrics settings were
+checked on September 24: the business day starts at **4 a.m. store local time**,
+OT1 pays **1.5 times** the rate, and daily salary/accrual additions are zero.
+Whole shifts follow their start time; the cutoff never deletes worked hours.
+TCP supplies the calculated regular/OT split; this adapter does not recalculate
+payroll overtime. Each segment's regular and overtime costs are rounded to cents.
+
+This remains a **TCP estimate**: TCP punches, rates and rounding can differ from
+Altametrics. Taxes and benefits are excluded. An unverified OT2 multiplier or
+nonzero salary/accrual allocation blocks the affected store pending reconciliation.
+See [LABOR_VERIFICATION.md](LABOR_VERIFICATION.md) for the source figures and limits.
+Payroll exports and tip calculations are unaffected.
 
 Open punches, zero-hour closed shifts, missing rates or calculated hours, and
 stores without shifts display a specific `Labor unavailable (...)` reason.
@@ -25,12 +32,17 @@ Altametrics zero or stale labor. The original Altametrics percentage is retained
 in `store-totals.json`; `tcp-labor.json` records per-store completeness and issues
 without individual wage rates. Both are kept in the private run artifact.
 
-`config.json` selects `labor_source: TCP base wage estimate`. GitHub needs the
+`config.json` selects `labor_source: TCP wage estimate` and loads the verified
+store settings from `labor_settings.json`. GitHub needs the
 existing TCP_CLIENT_ID, TCP_CLIENT_SECRET and TCP_API_KEY secrets in addition
 to Altametrics, OneDrive and Gmail credentials. Use a `preview` run to inspect
 the email and all three workbooks without uploads or sends. A `preflight` run
 reports any incomplete labor stores even though delivery can label them and
 send the remaining sales data.
+
+To recheck settings after a store configuration changes, run GitHub Actions ->
+**Inspect Altametrics labor settings**. Review its private JSON artifact before
+updating `labor_settings.json`; the audit only reads settings and sends no email.
 
 ## Verified September 23, 2026
 
