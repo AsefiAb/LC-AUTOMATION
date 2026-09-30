@@ -87,7 +87,7 @@ jobs:
         if: failure() && steps.gate.outputs.run == 'true'
         shell: bash
         run: |
-          echo 'Payroll did not complete. Inspect the private readiness report and TCP corrections CSV below. Do not treat a failed run as a delivered payroll.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Payroll reconciliation did not complete. Reports may have been emailed with an INCOMPLETE PAYROLL warning; check delivery receipts before retrying. Inspect private readiness, source-reconciliation, and regional issues reports. Email delivery is not payroll approval.' >> "$GITHUB_STEP_SUMMARY"
           echo 'If TCP returned closed shifts with zero calculated hours, reconcile a matching Complete Payroll OpenXML export using the payroll runbook. Never replace missing hours with zero or estimate overtime.' >> "$GITHUB_STEP_SUMMARY"
       - name: Keep private payroll reports briefly
         if: always() && steps.gate.outputs.run == 'true'

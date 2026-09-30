@@ -9,6 +9,7 @@ from payroll_run import normalize, period_for, fetch_tcp
 from tcp_report_fallback import apply_export
 from report_package import prepare_current, verify_stores
 from regional_email import delivery_ledgers, send_regions
+from source_reconciliation import completion_code
 
 
 def main():
@@ -60,7 +61,7 @@ def main():
         (args.output / 'delivery-results.json').write_text(json.dumps(result, indent=2))
     else:
         print('Preview only. No email sent and no ADP import submitted.')
-    return 0 if audit.get('reports_deliverable') else 2
+    return completion_code(audit)
 
 
 if __name__ == '__main__':

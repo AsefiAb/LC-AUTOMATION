@@ -351,8 +351,8 @@ def main():
     if args.mode == 'deliver':
         ledgers = delivery_ledgers(dates['end_date'])
         if all((ledger.read() or {}).get('status') == 'sent' for ledger in ledgers.values()):
-            print('All three regional payroll emails already delivered; no changes made')
-            return 0
+            print('Regional emails were already sent; delivery alone does not establish payroll completeness. No resend.')
+            return 2
     missing = gateway.missing_secrets() + [key for key in ('TCP_CLIENT_ID', 'TCP_CLIENT_SECRET', 'TCP_API_KEY', 'CAAZ_GMAIL_APP_PASS') if not os.environ.get(key)]
     if missing and args.mode != 'preflight':
         raise ValueError('Missing secrets: ' + ', '.join(missing))
@@ -373,22 +373,29 @@ def main():
         tips = gateway.fetch(dates)
         (output / 'gateway-input.json').write_text(json.dumps(tips, indent=2), encoding='utf-8')
     issues = ['Missing secret: ' + key for key in missing] + (payroll['issues'] if payroll else ['TCP was not checked'])
-    status = {'period': dates, 'ready': not issues, 'issues': issues,
+    from source_reconciliation import reconcile
+    settings = json.loads(os.environ.get('ADP_ROSTER_SETTINGS') or '{}')
+    comparison = reconcile(payroll, STORES, settings.get('source_reconciliation')) if payroll else None
+    source_ready = comparison is not None and comparison['ready']
+    status = {'period': dates, 'ready': not issues and source_ready, 'issues': issues,
+              'source_reconciliation': comparison,
               'tcp_roster_count': len(payroll['roster']) if payroll else 0,
               'gateway_store_count': len(tips['stores']) if tips else 0}
     (output / 'readiness.json').write_text(json.dumps(status, indent=2), encoding='utf-8')
-    print(json.dumps({**status, 'issues': [i for i in issues if not i.startswith('GEID')] + [f'{sum(i.startswith("GEID") for i in issues)} employee mapping issues (private artifact)']}, indent=2))
+    print(json.dumps({k: v for k, v in status.items() if k not in ('issues', 'source_reconciliation')}))
+    print(f'Source reconciliation ready: {source_ready}. See private readiness.json for details.')
     if issues:
         return 1
     if args.mode == 'preflight':
-        return 0
+        return 0 if status['ready'] else 2
     messages, summary = prepare(tips, payroll, output)
     print(f'Prepared 18 store workbooks and three native ADP regional imports for {len(summary["employees"])} TCP people')
     if ledgers:
         send_regions(messages, dates['end_date'], ledgers)
     else:
         print('Private preview only; no email sent')
-    return 0
+    from source_reconciliation import completion_code
+    return completion_code(json.loads((output / 'adp-readiness.json').read_text(encoding='utf-8')))
 
 
 if __name__ == '__main__':

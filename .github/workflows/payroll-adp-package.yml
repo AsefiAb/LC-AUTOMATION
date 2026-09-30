@@ -99,7 +99,8 @@ jobs:
               with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
                   f.write('ADP imports ready: '+str(d['ready'])+'\n\n')
                   f.write('Mode: '+os.environ['MODE']+'\n\n')
-                  f.write('Unresolved matching checks: '+str(len(d['issues']))+'. See the private artifact for employee details.\n')
+                  f.write('Unresolved identity/source checks: '+str(len(d['issues']))+'. See the private artifact for employee details.\n')
+                  f.write('Reports can be delivered with issues while this run remains incomplete. Check delivery-results.json before retrying; do not send or import duplicate payroll.\n')
           PY
       - name: Remove temporary source data
         if: always()

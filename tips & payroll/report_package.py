@@ -45,6 +45,8 @@ def store_spec(data, sid):
               ['Tips go only to crew and crew leaders. Managers receive zero tips.', '', '', '', '', '']]
     if any(e['store'] == sid for e in data.get('source_exceptions', [])):
         values[3][0] = 'Provisional tips: an unverified shift is excluded. See the regional payroll issues workbook.'
+    if not data.get('source_reconciliation', {}).get('stores', {}).get(sid, {'ready': True})['ready']:
+        values[3][0] = 'Hours and tips provisional: source reconciliation incomplete. See regional payroll issues.'
     formulas = {'E3': '=IF(C3>0,A3/C3,0)'}
     manager_ids = {r['geid'] for r in data['rows'] if set(r['roles']) & MANAGEMENT}
     crew = [r for r in rows if r['eligible']]
@@ -139,9 +141,17 @@ def prepare_current(gateway, payroll, output, template_folder, settings=None, wr
     data = report_data(gateway, payroll)
     output.mkdir(parents=True, exist_ok=True)
     audit = build_imports(data['summary'], template_folder, output, settings)
+    from source_reconciliation import reconcile
+    comparison = reconcile(payroll, [s['store'] for s in data['stores']],
+                           (settings or {}).get('source_reconciliation'))
+    data['source_reconciliation'] = comparison
+    audit['source_reconciliation'] = comparison
+    (output / 'source-reconciliation.json').write_text(json.dumps(comparison, indent=2), encoding='utf-8')
     for region, (code, _, filename) in FILES.items():
         exceptions = [e for e in data.get('source_exceptions', []) if e['store'].startswith(region + '-')]
-        if exceptions:
+        source_checks = [dict(store=s, reason=reason) for s, check in comparison['stores'].items()
+                         if s.startswith(region + '-') for reason in check['issues']]
+        if (exceptions or source_checks) and code in audit['regions']:
             detail = audit['regions'][code]
             if detail['ready']:
                 review = output / 'NEEDS REVIEW'
@@ -149,7 +159,8 @@ def prepare_current(gateway, payroll, output, template_folder, settings=None, wr
                 (output / filename).replace(review / filename)
             detail['ready'] = False
             detail['source_exceptions'] = exceptions
-            note = f'{code}: unverified source shift excluded; affected store tips are provisional'
+            detail['source_checks'] = source_checks
+            note = f'{code}: source hours are unresolved; payroll and affected store tip shares require review'
             detail['issues'].append(note)
             audit['issues'].append(note)
             audit['ready'] = False
@@ -176,6 +187,7 @@ def prepare_current(gateway, payroll, output, template_folder, settings=None, wr
                 continue
             proof = issue_reconciliation(data['summary'], region, detail)
             proof['source_exceptions'] = detail.get('source_exceptions', [])
+            proof['source_checks'] = detail.get('source_checks', [])
             proof['filename'] = f'{code} Payroll issues {date_label(data["period"])}.xlsx'
             write_issues_on_runner(detail['missing'], proof, output)
             # Keep the native filename, but explicitly disclose its incomplete
@@ -241,9 +253,13 @@ def write_issues_on_runner(people, proof, output):
         sheet.append([e['employeeId'], 'Identity unverified', 'Unverified', 'Unverified', 'Unverified', 'Unverified',
                       f"{e['store']} | Record {e['id']} | {e['timeIn']} to {e['timeOut']}. {e['reason']}"])
         unknown_rows.append(sheet.max_row)
+    for issue in proof.get('source_checks', []):
+        sheet.append(['', 'Source reconciliation', 'Unverified', 'Unverified', 'Unverified', 'Unverified',
+                      f"{issue['store']} | {issue['reason']}"])
+        unknown_rows.append(sheet.max_row)
     if unknown_rows:
-        sheet['A2'] = 'Known missing amounts totalled below. Unverified shifts are excluded from CSV and totals.'
-        sheet.append(['Next steps', 'Confirm the employee and correct/recalculate the shift in TCP. Regenerate payroll and store tips before finalizing.'])
+        sheet['A2'] = 'Known missing amounts totalled below. Additional source discrepancies are unverified and may change payroll.'
+        sheet.append(['Next steps', 'Reconcile source timecards and employee identities, then correct/recalculate TCP hours. Regenerate payroll and store tips before finalizing.'])
         sheet.append(['Tip impact', 'The affected store tip shares are provisional. Adding eligible crew hours changes shares for that store.'])
     for row in sheet:
         for cell in row:
@@ -272,6 +288,11 @@ def write_issues_on_runner(people, proof, output):
             actual = [c.value for c in check.active[r]]
             if actual[:6] != [e['employeeId'], 'Identity unverified'] + ['Unverified'] * 4 or e['id'] not in actual[6]:
                 raise ValueError('Unverified shift missing or assigned invented hours/tips')
+        offset = len(proof.get('source_exceptions', []))
+        for r, issue in zip(unknown_rows[offset:], proof.get('source_checks', [])):
+            actual = [c.value for c in check.active[r]]
+            if actual[1:6] != ['Source reconciliation'] + ['Unverified'] * 4 or actual[6] != f"{issue['store']} | {issue['reason']}":
+                raise ValueError('Source reconciliation issue missing from workbook')
         rows = list(check.active.iter_rows(min_row=4, max_row=3 + len(people), values_only=True))
         if len(rows) != len(people):
             raise ValueError('Incomplete issues workbook')

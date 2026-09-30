@@ -56,6 +56,9 @@ def build_region_messages(summary, sources, adp_imports=False, included_regions=
             if any(cents(detail[k], k) for k in ('regular_hours', 'overtime_hours', 'tips')):
                 body += (f'Not included in the CSV: {detail["regular_hours"]} regular hours, '
                          f'{detail["overtime_hours"]} overtime hours, ${detail["tips"]} tips.\n\n')
+            if detail.get('source_checks'):
+                body += ('TCP and Altametrics hours are not fully reconciled. Additional missing hours '
+                         'may not be included in these totals. See the source checks in the issues sheet.\n\n')
         body += (f'Attached are the {name} tips and payroll reports for {label}.\n\n'
                 f'Regular hours: {totals["regular_hours"]}\nOvertime hours: {totals["overtime_hours"]}\n'
                 f'Total hours: {totals["total_hours"]}\nTotal tips: ${totals["tips"]}\n')

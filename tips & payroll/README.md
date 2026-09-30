@@ -203,6 +203,34 @@ the period, including employees who have since left. An employee with TCP hours
 but no verified ADP identity needs resolution before that region is imported.
 Missing TCP records are not evidence of zero hours until completeness is verified.
 
+### Source reconciliation and incomplete runs
+
+As of September 29, both package generation and preflight require a documented
+Altametrics comparison before reporting source readiness. `source-reconciliation.json`
+lists every store's coverage and employee regular/OT disagreements. Missing evidence,
+unknown employee IDs, duplicate source rows, different dates, or changed TCP totals
+leave the affected region incomplete. The comparison never adds the two systems'
+hours or automatically substitutes Altametrics amounts. Resolve original punches,
+breaks, employee identifiers, and calculated overtime in the source systems first.
+
+The private period-specific `settings.json` / `ADP_ROSTER_SETTINGS` can contain
+`source_reconciliation` with `source: "Altametrics"`, the exact `period`,
+`tcp_hours_sha256` from `source_reconciliation.hours_fingerprint(payroll)`, a
+`coverage` object keyed by store (`complete: true`, `evidence_ref` pointing to the
+retained independent source report), and `records`. Each record contains `store`,
+verified TCP `geid`, `regular_hours`, and `overtime_hours` in decimal hours, one
+combined row per employee/store for that period. Collect every employee from the
+independent source before declaring coverage complete; never populate this evidence
+by copying TCP totals. Keep source exports and identity verification private.
+This is a comparison input contract, not an implemented unattended Altametrics
+payroll collector. Differences in workweek or rounding rules require investigation.
+
+Reports may still be emailed with issues, as requested. Those emails are labeled
+INCOMPLETE PAYROLL, include regional source checks, and keep native import candidates
+in NEEDS REVIEW. The GitHub run exits nonzero while payroll remains incomplete,
+even if email delivery succeeded. Check delivery receipts before any retry. A sent
+receipt alone is not evidence that payroll was complete or that ADP paid employees.
+
 Produce separate exports for CO, AZ, and TX, and import each into its verified
 ADP company/payroll group and period. An ADP company code and payroll file number
 identify the target; names assist initial matching but must not be the sole key
