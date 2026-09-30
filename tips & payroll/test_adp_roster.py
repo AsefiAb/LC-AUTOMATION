@@ -122,6 +122,39 @@ class CurrentADPRosterTests(unittest.TestCase):
             'file_number':'0001', 'tcp_name':'Wrong Name', 'adp_name':'Robin De La Cruz'}}, True)
         self.assertFalse(audit['ready'])
 
+    def test_incomplete_email_warns_before_totals_and_preserves_csv_filename(self):
+        from regional_email import build_region_messages
+        output, _ = fill_region(self.summary, '3910', self.raw, allow_missing_zero=True)
+        summary = dict(self.summary, period={'start_date': '2026-09-08', 'end_date': '2026-09-21'},
+                       stores=['3910-01', '3910-02'])
+        issue_name = 'TX Payroll issues 9.8.26-9.21.26.xlsx'
+        with tempfile.TemporaryDirectory() as folder:
+            sources = []
+            for name, content in [('EPIZKT00.CSV', output),
+                                  ('3910-01 9.8.26-9.21.26.xlsx', b'store report'),
+                                  ('3910-02 9.8.26-9.21.26.xlsx', b'store report'),
+                                  (issue_name, b'issues report')]:
+                path = Path(folder) / name
+                path.write_bytes(content)
+                sources.append({'path': str(path), 'sha256': hashlib.sha256(content).hexdigest()})
+            for amount in ('9.00', '0.00'):
+                with self.subTest(excluded_regular=amount):
+                    issue = {'filename': issue_name, 'regular_hours': amount,
+                             'overtime_hours': '0.00', 'tips': '0.00',
+                             'source_exceptions': [{'store': '3910-01', 'employeeId': 'unknown',
+                                                    'timeIn': '2026-09-10T09:00:00'}]}
+                    message, = build_region_messages(summary, sources, adp_imports=True,
+                        included_regions=['3910'], issue_regions={'TX': issue})
+                    self.assertEqual(message['Subject'], 'TX TIPS 9.8.26-9.21.26 - INCOMPLETE PAYROLL')
+                    self.assertEqual(message['X-ADP-Import-Status'], 'incomplete')
+                    body = message.get_body().get_content()
+                    self.assertLess(body.index('INCOMPLETE PAYROLL'), body.index('Regular hours:'))
+                    self.assertNotIn('ADP upload:', body)
+                    self.assertIn('Payable hours and tips for this unmatched shift are unverified', body)
+                    if amount != '0.00':
+                        self.assertIn('Not included in the CSV: 9.00 regular hours', body)
+                    self.assertEqual(next(message.iter_attachments()).get_filename(), 'EPIZKT00.CSV')
+
     def test_tip_earnings_code_not_interchangeable(self):
         with self.assertRaises(ValueError):
             fill_region(self.summary, '3910', self.raw.replace(b'Amount,T,,0', b'Amount,TIP,,0'))

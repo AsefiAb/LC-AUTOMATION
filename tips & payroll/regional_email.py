@@ -43,12 +43,23 @@ def build_region_messages(summary, sources, adp_imports=False, included_regions=
         message = EmailMessage()
         message['From'] = 'ab@caazllc.com'
         message['To'] = 'alicia@lccollc.com'
-        message['Subject'] = f'{code} TIPS {label}'
+        incomplete = code in issue_regions
+        message['Subject'] = f'{code} TIPS {label}' + (' - INCOMPLETE PAYROLL' if incomplete else '')
+        message['X-ADP-Import-Status'] = 'incomplete' if incomplete else ('matched' if adp_imports else 'not-checked')
         message['Message-ID'] = f'<payroll-{code}-{summary["period"]["start_date"]}-{summary["period"]["end_date"]}@caazllc.com>'
-        body = (f'Hi Alicia,\n\nAttached are the {name} tips and payroll reports for {label}.\n\n'
+        body = 'Hi Alicia,\n\n'
+        if incomplete:
+            detail = issue_regions[code]
+            body += ('INCOMPLETE PAYROLL — do not use the attached CSV as the full payroll.\n'
+                     'Sending these reports does not resolve the missing employee amounts or source issues.\n'
+                     f'See {detail["filename"]} before finalizing payroll.\n\n')
+            if any(cents(detail[k], k) for k in ('regular_hours', 'overtime_hours', 'tips')):
+                body += (f'Not included in the CSV: {detail["regular_hours"]} regular hours, '
+                         f'{detail["overtime_hours"]} overtime hours, ${detail["tips"]} tips.\n\n')
+        body += (f'Attached are the {name} tips and payroll reports for {label}.\n\n'
                 f'Regular hours: {totals["regular_hours"]}\nOvertime hours: {totals["overtime_hours"]}\n'
                 f'Total hours: {totals["total_hours"]}\nTotal tips: ${totals["tips"]}\n')
-        if adp_imports:
+        if adp_imports and not incomplete:
             body += f'\nADP upload: {FILES[region][2]}. The Excel files are supporting reports.\n'
         if code in issue_regions:
             detail = issue_regions[code]
