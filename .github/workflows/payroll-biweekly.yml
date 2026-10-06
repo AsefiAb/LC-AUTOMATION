@@ -100,6 +100,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: payroll-${{ github.run_id }}
+          # Includes period/gateway-diagnostics even when report generation fails.
           path: tips & payroll/reports/
           retention-days: 3
           if-no-files-found: ignore

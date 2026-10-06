@@ -19,7 +19,34 @@ REFERENCE_REVISION = 'f28a2698e41dee97df2e673032e34fe06450983d'
 
 
 class GatewayError(RuntimeError):
-    pass
+    def __init__(self, message, retryable=False):
+        super().__init__(message)
+        self.retryable = retryable
+
+
+def transient_report_error(exc, stage):
+    """Retry transport/rendering only; never retry failed source validation."""
+    if stage not in ('browser context', 'report navigation', 'Financial View menu',
+                     'Financial View frame', 'report refresh'):
+        return False
+    kind = type(exc)
+    is_playwright = kind.__module__.startswith('playwright.')
+    if isinstance(exc, TimeoutError) or (is_playwright and kind.__name__ == 'TimeoutError'):
+        return True
+    return is_playwright and any(label in str(exc) for label in (
+        'net::ERR_CONNECTION_RESET', 'net::ERR_CONNECTION_CLOSED', 'net::ERR_TIMED_OUT',
+        'net::ERR_NETWORK_CHANGED', 'net::ERR_HTTP2_PROTOCOL_ERROR'))
+
+
+async def retry_region(region, run, attempts=2):
+    for attempt in range(1, attempts + 1):
+        try:
+            return await run(attempt)
+        except GatewayError as exc:
+            if not exc.retryable or attempt == attempts:
+                raise
+            print(f'{region}: transient Gateway report failure; retrying with a fresh session ({attempt + 1}/{attempts})', flush=True)
+            await asyncio.sleep(5)
 
 
 def missing_secrets():
@@ -58,12 +85,14 @@ async def collect(dates):
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         try:
-            async def region_report(region, franchise, count):
-                context = await browser.new_context()
-                stage = 'login'
+            async def region_report(region, franchise, count, attempt):
+                context, page = None, None
+                stage = 'browser context'
                 try:
+                    context = await browser.new_context()
                     page = await context.new_page()
                     page.set_default_timeout(30000)
+                    stage = 'login'
                     await page.goto('https://www.lcegateway.com/login', wait_until='domcontentloaded')
                     await page.locator('input[name="username"], input[type="text"]').first.fill(os.environ[f'{region}_GATEWAY_USER'])
                     await page.locator('input[type="password"]').first.fill(os.environ[f'{region}_GATEWAY_PASS'])
@@ -143,28 +172,58 @@ async def collect(dates):
                         result.append({'store': f'{franchise}-{index:02d}', **parse_tip_rows(tables)})
                     return result
                 except Exception as exc:
+                    retryable = transient_report_error(exc, stage)
+                    # Interactive/security pages need the account owner, even
+                    # if waiting for a report link happened to time out.
+                    if retryable and page is not None:
+                        try:
+                            if re.search(r'/login(?:/|$)', urlsplit(page.url).path, re.I):
+                                retryable = False
+                            challenges = page.get_by_text(re.compile(
+                                r'captcha|security check|verify your identity|verification code|two.factor', re.I))
+                            for element in await challenges.all():
+                                if await element.is_visible():
+                                    retryable = False
+                            for element in await page.locator('iframe[src*="captcha" i], iframe[title*="challenge" i]').all():
+                                if await element.is_visible():
+                                    retryable = False
+                        except Exception:
+                            retryable = False
+                    detail = str(exc) if type(exc) in (RuntimeError, ValueError) else type(exc).__name__
+                    message = f'{region}: Gateway {stage} failed: {detail}'
+                    folder = Path(__file__).parent / 'reports' / (dates['start_date'] + '_' + dates['end_date']) / 'gateway-diagnostics'
+                    folder.mkdir(parents=True, exist_ok=True)
+                    diagnostic = region + '-attempt-' + str(attempt)
+                    metadata = {'region': region, 'stage': stage, 'attempt': attempt,
+                                'error': message, 'retryable': retryable}
+                    # Write the cause first. Screenshots/DOM inspection can fail
+                    # on a disconnected page and must not erase the diagnosis.
+                    (folder / (diagnostic + '.json')).write_text(json.dumps(metadata, indent=2), encoding='utf-8')
                     try:
-                        folder = Path(__file__).parent / 'reports' / 'gateway-diagnostics'
-                        folder.mkdir(parents=True, exist_ok=True)
-                        await page.screenshot(path=str(folder / (region + '.png')), mask=[page.locator('input')])
-                        metadata = {'stage': stage, 'host': urlsplit(page.url).hostname,
+                        await page.screenshot(path=str(folder / (diagnostic + '.png')), mask=[page.locator('input')], timeout=10000)
+                        metadata.update({'host': urlsplit(page.url).hostname,
                                     'frame_hosts': [urlsplit(f.url).hostname for f in page.frames],
                                     'report_link_labels': await page.locator('a').all_text_contents(),
-                                    'inputs': await page.locator('input:visible').evaluate_all('els=>els.map(e=>({id:e.id,type:e.type}))')}
+                                    'inputs': await page.locator('input:visible').evaluate_all('els=>els.map(e=>({id:e.id,type:e.type}))')})
                         metadata['report_controls'] = []
                         for report_frame in page.frames:
                             if 'paginated-reports.powerbi.com' in report_frame.url:
                                 metadata['report_controls'] += await report_frame.locator('input').evaluate_all('els=>els.slice(0,100).map(e=>({id:e.id,type:e.type,label:e.getAttribute("aria-label"),visible:!!(e.offsetWidth||e.offsetHeight)}))')
                                 metadata['checkboxes'] = await report_frame.get_by_role('menuitemcheckbox').evaluate_all('els=>els.map(e=>({text:e.textContent,checked:e.getAttribute("aria-checked")}))')
                                 metadata['store_options'] = await report_frame.get_by_text('00001', exact=True).evaluate_all('els=>els.map(e=>({html:e.parentElement.outerHTML.slice(0,8000)}))')
-                        (folder / (region + '.json')).write_text(json.dumps(metadata, indent=2), encoding='utf-8')
+                        (folder / (diagnostic + '.json')).write_text(json.dumps(metadata, indent=2), encoding='utf-8')
                     except Exception:
                         pass
-                    detail = str(exc) if type(exc) in (RuntimeError, ValueError) else type(exc).__name__
-                    raise GatewayError(f'{region}: Gateway {stage} failed: {detail}') from None
+                    raise GatewayError(message, retryable=retryable) from None
                 finally:
-                    await context.close()
-            groups = await asyncio.gather(*(region_report(region, *definition) for region, definition in REGIONS.items()), return_exceptions=True)
+                    if context is not None:
+                        try:
+                            await context.close()
+                        except Exception:
+                            pass
+            groups = await asyncio.gather(*(retry_region(region,
+                lambda attempt, r=region, d=definition: region_report(r, *d, attempt))
+                for region, definition in REGIONS.items()), return_exceptions=True)
             failures = [str(g) for g in groups if isinstance(g, GatewayError)]
             if failures:
                 raise GatewayError('; '.join(failures))

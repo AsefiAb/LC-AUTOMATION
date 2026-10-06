@@ -131,6 +131,27 @@ class PayrollReviewTests(unittest.TestCase):
             self.assertEqual(len(list((output / 'REVIEW ONLY').glob('*.xlsx'))), 24)
             self.assertFalse(list(output.rglob('EPI*.CSV')))
 
+    def test_gateway_failure_keeps_safe_stage_detail_in_private_artifact(self):
+        report = dict(period=dict(startDate='2026-09-22', stopDate='2026-10-05'), datasets={})
+        env = {k: 'test' for k in ('TCP_CLIENT_ID', 'TCP_CLIENT_SECRET', 'TCP_API_KEY')}
+        detail = 'TX: Gateway Financial View frame failed: TimeoutError'
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, env, clear=True), \
+                patch('sys.argv', ['payroll_run', '--mode', 'preflight']), \
+                patch.object(payroll_run, 'FOLDER', Path(folder)), \
+                patch.object(payroll_run, 'period_for', return_value=self.dates), \
+                patch.object(payroll_run, 'fetch_tcp', return_value=report), \
+                patch.object(payroll_run, 'normalize', return_value=self.payroll), \
+                patch.object(payroll_run, 'write_issues'), \
+                patch.object(payroll_run.gateway, 'missing_secrets', return_value=[]), \
+                patch.object(payroll_run.gateway, 'fetch', side_effect=payroll_run.gateway.GatewayError(detail)):
+            self.assertEqual(payroll_run.main(), 2)
+            output = Path(folder) / 'reports/2026-09-22_2026-10-05'
+            errors = json.loads((output / 'collection-errors.json').read_text())
+            self.assertEqual(errors, [{'source': 'Gateway', 'detail': detail}])
+            status = json.loads((output / 'readiness.json').read_text())
+            self.assertEqual(status['gateway_store_count'], 0)
+            self.assertFalse(status['ready'])
+
 
 if __name__ == '__main__':
     unittest.main()

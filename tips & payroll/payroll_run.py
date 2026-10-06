@@ -377,6 +377,7 @@ def main():
         missing.append('CAAZ_GMAIL_APP_PASS')
     payroll, report = None, None
     collection_issues = []
+    collection_errors = []
     if all(os.environ.get(key) for key in ('TCP_CLIENT_ID', 'TCP_CLIENT_SECRET', 'TCP_API_KEY')):
         from tcp_inspect import InspectionError
         try:
@@ -399,8 +400,13 @@ def main():
         try:
             tips = gateway.fetch(dates)
             (output / 'gateway-input.json').write_text(json.dumps(tips, indent=2), encoding='utf-8')
-        except gateway.GatewayError:
+        except gateway.GatewayError as exc:
             collection_issues.append('Gateway tips collection failed; no complete store tip pools are available. Check Gateway access and rerun.')
+            # GatewayError already reduces browser exceptions to safe labels;
+            # retain its region/stage instead of hiding every failure as generic.
+            collection_errors.append({'source': 'Gateway', 'detail': str(exc)})
+            print(str(exc), file=sys.stderr)
+    (output / 'collection-errors.json').write_text(json.dumps(collection_errors, indent=2), encoding='utf-8')
     settings, roster_issues = roster_setup(dates)
     issues = (['Missing secret: ' + key for key in missing] + collection_issues + roster_issues
               + (payroll['issues'] if payroll else ['TCP hours are unavailable']))
