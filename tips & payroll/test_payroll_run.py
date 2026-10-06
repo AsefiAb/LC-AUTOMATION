@@ -152,6 +152,43 @@ class PayrollPipelineTests(unittest.TestCase):
         self.assertEqual(len(result['roster']), 1)
         self.assertEqual(result['employees'][0]['store'], '3356-01')
 
+    def test_multiple_management_titles_preserved_but_mixed_crew_manager_blocks(self):
+        report = self.fixture()
+        report['datasets']['jobcodes']['records'] = [
+            dict(jobCodeId=2, description='Manager - 3356-01'),
+            dict(jobCodeId=3, description='Assistant Manager - 3356-01')]
+        report['datasets']['employeejobcodes']['records'] = [
+            dict(employeeId=101, jobCodeId=2, isDefault=False, isActive=True),
+            dict(employeeId=101, jobCodeId=3, isDefault=False, isActive=True)]
+        with patch.object(p, 'STORES', ['3356-01']):
+            result = p.normalize(report)
+            self.assertEqual(result['roster'][0]['roles'], ['assistant manager', 'manager'])
+            self.assertEqual(result['employees'][0]['roles'], ['assistant manager', 'manager'])
+            self.assertFalse(any('GEID 101:' in issue for issue in result['issues']))
+            report['datasets']['jobcodes']['records'][0]['description'] = 'Crew Member - 3356-01'
+            mixed = p.normalize(report)
+            self.assertTrue(any('GEID 101: conflicting active job titles' in issue for issue in mixed['issues']))
+            self.assertEqual(mixed['roster'], [])
+            report['datasets']['jobcodes']['records'][0]['locationName'] = '3356-01'
+            report['datasets']['hours']['records'] = [dict(employee=report['datasets']['employees']['records'][0],
+                segments=[dict(recordId=99, timeIn='2026-08-25T09:00:00', timeOut='2026-08-25T12:00:00',
+                               jobCode=dict(jobCodeId=2), hours=dict(regular='3:00', overtime1='0:00', overtime2='0:00'))])]
+            report['datasets']['worksegments']['records'] = [dict(id=99, employeeId=101, jobCodeId=2,
+                timeIn='2026-08-25T09:00:00', timeOut='2026-08-25T12:00:00')]
+            registry = dict(version=1, unresolved=[dict(geid='101', source_role='crew / assistant manager', evidence_ref='test conflict')],
+                confirmed=[dict(geid='101', role='assistant manager', evidence_ref='test owner confirmation',
+                                period=dict(start_date='2026-08-25', end_date='2026-09-07'))])
+            with patch.dict(os.environ, {'PAYROLL_ROLE_REVIEWS': json.dumps(registry)}):
+                confirmed = p.normalize(report)
+                self.assertEqual(confirmed['roster'][0]['roles'], ['assistant manager'])
+                self.assertEqual(confirmed['roster'][0]['tcp_roles'], ['assistant manager', 'crew member'])
+                self.assertEqual(confirmed['employees'][0]['total_hours'], '3.00')
+                self.assertFalse(any('GEID 101:' in issue for issue in confirmed['issues']))
+                registry['confirmed'][0]['period'] = dict(start_date='2026-09-08', end_date='2026-09-21')
+                with patch.dict(os.environ, {'PAYROLL_ROLE_REVIEWS': json.dumps(registry)}):
+                    stale = p.normalize(report)
+                self.assertTrue(any('GEID 101: conflicting active job titles' in issue for issue in stale['issues']))
+
     def test_zero_duration_tipping_marker_does_not_replace_default_role(self):
         from summarize_inspection import summarize
         report = self.fixture()

@@ -48,6 +48,50 @@ class RoleReviewTests(unittest.TestCase):
         self.registry['unresolved'][0]['geid'] = '999'
         self.assertTrue(self.apply(self.registry)['verified'])
 
+    def confirmation(self):
+        return dict(geid='123', role='co-manager', period=self.payroll['period'].copy(),
+                    evidence_ref='Owner confirmed management for this exact payroll period')
+
+    def test_confirmed_management_override_excludes_tips_preserving_source_hours(self):
+        self.registry['confirmed'] = [self.confirmation()]
+        self.payroll['roster'].append(dict(geid='456', roles=['crew member']))
+        self.payroll['employees'].append(dict(employee_id='456', store='3356-01', roles=['crew member'], total_hours='10.00'))
+        result = self.apply(self.registry)
+        self.assertTrue(result['verified'])
+        self.assertEqual(result['role_reviews']['unresolved'], [])
+        self.assertEqual(result['roster'][0]['roles'], ['co-manager'])
+        self.assertEqual(result['roster'][0]['tcp_roles'], ['crew member'])
+        self.assertEqual(result['employees'][0]['total_hours'], '12.00')
+        self.assertEqual(result['employees'][0]['tcp_roles'], ['crew member'])
+        self.assertEqual(self.payroll['employees'][0]['roles'], ['crew member'])
+        gateway = dict(period=result['period'], verified=True, issues=[], stores=[dict(store='3356-01', total_tips='5.00')])
+        allocation = allocate(gateway, result)
+        self.assertEqual({p['employee_id']: p['tips'] for p in allocation['employees']}, {'123': '0.00', '456': '5.00'})
+
+    def test_period_specific_confirmation_does_not_silently_clear_future_or_past(self):
+        self.registry['confirmed'] = [self.confirmation()]
+        for first, last in [('2026-09-08', '2026-09-21'), ('2026-10-06', '2026-10-19')]:
+            self.payroll['period'] = dict(start_date=first, end_date=last)
+            result = self.apply(self.registry)
+            self.assertFalse(result['verified'])
+            self.assertEqual(result['roster'][0]['roles'], ['crew member'])
+            self.assertEqual(result['role_reviews']['confirmed'], [])
+
+    def test_bad_confirmation_or_crew_override_never_clears_review(self):
+        for mutation in [lambda p: p.update(role='crew'),
+                         lambda p: p.update(geid='not-an-open-review'),
+                         lambda p: p.update(evidence_ref=''),
+                         lambda p: p.update(period={}),
+                         lambda p: p['period'].update(end_date='2026-10-06')]:
+            confirmed = self.confirmation()
+            mutation(confirmed)
+            self.registry['confirmed'] = [confirmed]
+            result = self.apply(self.registry)
+            self.assertFalse(result['verified'])
+            self.assertEqual(result['roster'][0]['roles'], ['crew member'])
+        self.registry['confirmed'] = [self.confirmation(), self.confirmation()]
+        self.assertFalse(self.apply(self.registry)['verified'])
+
 
 if __name__ == '__main__':
     unittest.main()

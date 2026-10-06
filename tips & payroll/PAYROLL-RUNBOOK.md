@@ -48,6 +48,17 @@ resolution, remove that entry; an explicit `{"version":1,"unresolved":[]}` means
 all known reviews have been closed. Missing/invalid configuration blocks readiness.
 The registry applies to scheduled runs and reviewed native-export packages.
 
+For an owner-confirmed management exclusion covering one exact payroll period,
+retain the employee's `unresolved` entry and add a `confirmed` entry:
+`{"geid":"...","role":"co-manager","period":{"start_date":"2026-09-22","end_date":"2026-10-05"},"evidence_ref":"Owner confirmation reference"}`.
+Only recognized management roles are accepted. For that exact period, the
+normalized payroll role changes to the confirmed management role, source roles
+remain under `tcp_roles`, and the person receives zero tips. No TCP record is
+edited. Other periods retain the open review rather than assuming the historical
+confirmation continues forever. Duplicate/overlapping or malformed confirmations
+block readiness. Remove the open review only after its broader effective dates
+and TCP role setup have been resolved.
+
 The historical implementation notes below describe earlier behavior. This section
 supersedes the earlier silent delivery holds for incomplete input.
 

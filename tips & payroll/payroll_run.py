@@ -115,6 +115,8 @@ def normalize(report):
     jobs = {str(r['jobCodeId']): r for r in datasets['jobcodes']['records']}
     assignments = defaultdict(list)
     first, last = report['period']['startDate'], report['period']['stopDate']
+    from role_reviews import confirmed_roles_for_period
+    confirmed_roles = confirmed_roles_for_period({'start_date': first, 'end_date': last})
     for row in datasets['employeejobcodes']['records']:
         start, stop = str(row.get('activePeriodStartDate') or '')[:10], str(row.get('activePeriodStopDate') or '')[:10]
         if start and start > last or stop and stop < first:
@@ -158,6 +160,15 @@ def normalize(report):
                     except ValueError:
                         continue  # Sick/bonus/tipping codes are not staff titles.
                 if len(assigned_titles) == 1:
+                    titles = assigned_titles
+                elif assigned_titles and assigned_titles <= MANAGEMENT:
+                    # Multiple management titles share the same non-tip status.
+                    # Preserve every title; do not invent a preferred/default job.
+                    titles = assigned_titles
+                elif len(assigned_titles) > 1 and eid in confirmed_roles:
+                    # An explicit owner confirmation resolves eligibility for
+                    # this exact period. Retain all TCP titles until the final
+                    # role-review pass saves them and applies the confirmed role.
                     titles = assigned_titles
                 elif len(assigned_titles) > 1:
                     raise ValueError('conflicting active job titles without a default')
