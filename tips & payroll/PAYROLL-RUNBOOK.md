@@ -12,9 +12,13 @@ October 6. Managers handle daily timecard corrections. Keep exception checks
 inside this biweekly workflow and its same-day retries; do not add daily
 missing-punch notifications. Each retry reads TCP again. Actual clock-out
 corrections must be made in TCP before the affected hours/tips are finalized.
-Scheduled end times may be presented only as proposed corrections, never as
-verified worked time. Schedule lookup is not connected yet: confirm whether
-TCP or Altametrics holds the schedules before implementing that comparison.
+The owner confirmed schedules are in TCP, then canceled the scheduled-clock-out
+comparison. That feature was removed before deployment. Do not substitute
+scheduled hours for actual punches or enable schedule lookup without a new request.
+The manual **Email Alicia missing TCP clock-outs** action rechecks TCP and sends
+one plain-text notice for an explicitly selected completed payroll period. It has
+no recurring trigger, makes no timecard/payroll changes, and uses a separate
+delivery receipt to prevent duplicate notices.
 
 Missing TCP calculations, failed Gateway access, or old/missing ADP roster exports
 now produce three regional **INCOMPLETE PAYROLL REVIEW** emails when delivery is
