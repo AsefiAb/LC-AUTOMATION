@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 import tempfile
 import unittest
@@ -176,6 +177,113 @@ class WorkbookRecoveryTests(unittest.TestCase):
             result = repair_workbooks.repair('2026-09-16', '2026-09-16', config)
             self.assertTrue(result['complete'])
             self.assertTrue(result['workbooks'][0]['verified'])
+
+
+class ReviewedSourceTests(unittest.TestCase):
+    def fixture(self):
+        config = copy.deepcopy(CONFIG)
+        config['stores'] = [config['stores'][0], next(s for s in config['stores'] if s['store'] == '3759-01')]
+        payload = {'schema_version': 1, 'start': '2026-09-16', 'end': '2026-09-16',
+            'regions': ['AZ'], 'provenance': {'system': 'Altametrics',
+            'report': 'Daily Activity Report', 'sales_metric': 'Product Net',
+            'transactions_metric': 'Actual Total transactions', 'method': 'authenticated_browser_review',
+            'observed_at': '2026-09-17T15:00:00Z', 'reviewed_by': 'test reviewer',
+            'evidence': ['AZ-2026-09-16-ui.json']},
+            'records': [{'date': '2026-09-16', 'store': '3759-01', 'sales': '1234.56', 'transactions': 200}]}
+        return config, payload
+
+    def save(self, folder, payload):
+        path = Path(folder) / 'reviewed.json'
+        content = json.dumps(payload).encode('utf-8')
+        path.write_bytes(content)
+        return path, hashlib.sha256(content).hexdigest()
+
+    def test_region_subset_retains_coverage_and_provenance_without_inventing_labor(self):
+        config, payload = self.fixture()
+        with tempfile.TemporaryDirectory() as folder:
+            path, digest = self.save(folder, payload)
+            selected, rows, reviewed = repair_workbooks.reviewed_source(
+                path, digest, payload['start'], payload['end'], config)
+            self.assertEqual([b['region'] for b in selected['workbooks']], ['AZ'])
+            self.assertEqual([s['store'] for s in selected['stores']], ['3759-01'])
+            self.assertEqual(rows['2026-09-16'][0]['sales'], '1234.56')
+            self.assertNotIn('labor_pct', rows['2026-09-16'][0])
+            self.assertEqual(reviewed['provenance'], payload['provenance'])
+            self.assertEqual(len(config['workbooks']), 3)  # Caller remains unchanged.
+
+    def test_rejects_bad_provenance_values_coverage_and_scope_before_onedrive(self):
+        cases = ['missing_store', 'duplicate', 'wrong_date', 'unknown_store', 'unknown_region',
+                 'bad_metric', 'no_evidence', 'session_url', 'missing_reviewer', 'nan',
+                 'negative', 'fractional_transaction', 'extra_precision', 'wrong_period', 'duplicate_region']
+        for case in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as folder:
+                config, payload = self.fixture()
+                if case == 'missing_store': payload['records'] = []
+                if case == 'duplicate': payload['records'] *= 2
+                if case == 'wrong_date': payload['records'][0]['date'] = '2026-09-15'
+                if case == 'unknown_store': payload['records'][0]['store'] = '3759-99'
+                if case == 'unknown_region': payload['regions'] = ['BAD']
+                if case == 'duplicate_region': payload['regions'] *= 2
+                if case == 'bad_metric': payload['provenance']['sales_metric'] = 'Gross sales'
+                if case == 'no_evidence': payload['provenance']['evidence'] = []
+                if case == 'session_url': payload['provenance']['evidence'] = ['https://example.test/session']
+                if case == 'missing_reviewer': payload['provenance']['reviewed_by'] = ''
+                if case == 'nan': payload['records'][0]['sales'] = 'NaN'
+                if case == 'negative': payload['records'][0]['sales'] = '-1'
+                if case == 'fractional_transaction': payload['records'][0]['transactions'] = 1.5
+                if case == 'extra_precision': payload['records'][0]['sales'] = '1234.567'
+                if case == 'wrong_period': payload['end'] = '2026-09-17'
+                path, digest = self.save(folder, payload)
+                with patch.object(repair_workbooks, 'OneDrive') as drive:
+                    with self.assertRaises(ValueError):
+                        repair_workbooks.repair('2026-09-16', '2026-09-16', config,
+                            source_records=path, source_sha256=digest)
+                    drive.assert_not_called()
+
+    def test_digest_binds_dispatch_to_exact_secret_bytes(self):
+        config, payload = self.fixture()
+        with tempfile.TemporaryDirectory() as folder:
+            path, digest = self.save(folder, payload)
+            with self.assertRaisesRegex(ValueError, 'digest does not match'):
+                repair_workbooks.reviewed_source(path, '0'*64, payload['start'], payload['end'], config)
+
+    def test_manual_numbers_cannot_silently_strip_bad_currency_or_grouping(self):
+        bad_sales = ['1,23.45', '$$123', '$123', '1,234.56', '123 ', '+123', '01.25',
+                     '1e3', True, False, 'NaN']
+        bad_transactions = ['$123', '1,23', '123.0', 123.0, '01', True, False]
+        for field, values in [('sales', bad_sales), ('transactions', bad_transactions)]:
+            for value in values:
+                with self.subTest(field=field, value=value), tempfile.TemporaryDirectory() as folder:
+                    config, payload = self.fixture()
+                    payload['records'][0][field] = value
+                    path, digest = self.save(folder, payload)
+                    with self.assertRaisesRegex(ValueError, 'canonical'):
+                        repair_workbooks.reviewed_source(path, digest, payload['start'], payload['end'], config)
+
+    def test_observation_must_follow_the_complete_requested_period_in_local_time(self):
+        for observed in ('2026-09-15T15:00:00Z', '2026-09-16T22:00:00Z', '2026-09-17T02:00:00Z'):
+            with self.subTest(observed=observed), tempfile.TemporaryDirectory() as folder:
+                config, payload = self.fixture()
+                payload['provenance']['observed_at'] = observed
+                path, digest = self.save(folder, payload)
+                with self.assertRaisesRegex(ValueError, 'after the requested report period'):
+                    repair_workbooks.reviewed_source(path, digest, payload['start'], payload['end'], config)
+
+    def test_reviewed_preview_uses_only_selected_workbook_and_never_logs_in_to_altametrics(self):
+        config, payload = self.fixture()
+        with tempfile.TemporaryDirectory() as folder, patch.object(repair_workbooks, 'FOLDER', Path(folder)), \
+                patch.object(repair_workbooks, 'OneDrive') as drive, \
+                patch.object(repair_workbooks.altametrics, 'fetch_many') as fetch:
+            path, digest = self.save(folder, payload)
+            drive.return_value.read.return_value = {'content': sample_workbook(header='3759-01')}
+            result = repair_workbooks.repair('2026-09-16', '2026-09-16', config, preview=True,
+                source_records=path, source_sha256=digest)
+            drive.return_value.read.assert_called_once_with(CONFIG['workbooks'][2]['url'])
+            drive.return_value.write.assert_not_called()
+            fetch.assert_not_called()
+            self.assertEqual(result['selected_regions'], ['AZ'])
+            self.assertEqual(result['source_sha256'], digest)
+            self.assertEqual(result['emails_sent'], 0)
 
 
 if __name__ == '__main__':

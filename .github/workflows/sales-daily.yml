@@ -24,6 +24,10 @@ on:
         description: Repair end date inclusive (report_date is start); ignored for other modes
         required: false
         type: string
+      source_sha256:
+        description: Optional exact digest of reviewed browser JSON in SALES_REPAIR_SOURCE_JSON secret (repair modes only)
+        required: false
+        type: string
 permissions:
   contents: write
 concurrency:
@@ -67,6 +71,8 @@ jobs:
           TX_PASSWORD: ${{ secrets.TX_PASSWORD }}
           REPORT_DATE: ${{ inputs.report_date }}
           END_DATE: ${{ inputs.end_date }}
+          SOURCE_SHA256: ${{ inputs.source_sha256 }}
+          SALES_REPAIR_SOURCE_JSON: ${{ secrets.SALES_REPAIR_SOURCE_JSON }}
           EVENT_NAME: ${{ github.event_name }}
           MODE: ${{ inputs.mode || (vars.SALES_AUTOMATION_ENABLED == 'true' && 'deliver' || 'preflight') }}
           TCP_CLIENT_ID: ${{ secrets.TCP_CLIENT_ID }}
@@ -81,6 +87,9 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           args=()
+          if [ -n "$SOURCE_SHA256" ] && [ "$MODE" != repair ] && [ "$MODE" != repair-preview ]; then
+            echo 'Reviewed source is supported only in repair modes.'; exit 1
+          fi
           if [ -n "$REPORT_DATE" ]; then args+=(--date "$REPORT_DATE"); fi
           case "$MODE" in
             preflight) args+=(--preflight) ;;
@@ -92,6 +101,17 @@ jobs:
               if [ -z "$REPORT_DATE" ]; then echo 'Repair requires an explicit report_date start.'; exit 1; fi
               repair_args=(--start "$REPORT_DATE" --end "${END_DATE:-$REPORT_DATE}")
               if [ "$MODE" = repair-preview ]; then repair_args+=(--preview); fi
+              if [ -n "$SOURCE_SHA256" ]; then
+                python - <<'PY'
+          import os
+          from pathlib import Path
+          content = os.environ.get('SALES_REPAIR_SOURCE_JSON', '')
+          if not content:
+              raise SystemExit('Missing encrypted reviewed source secret.')
+          (Path(os.environ['RUNNER_TEMP']) / 'sales-reviewed-source.json').write_bytes(content.encode('utf-8'))
+          PY
+                repair_args+=(--source-records "$RUNNER_TEMP/sales-reviewed-source.json" --source-sha256 "$SOURCE_SHA256")
+              fi
               python 'sales automation/repair_workbooks.py' "${repair_args[@]}"
               exit $?
               ;;
