@@ -78,6 +78,7 @@ jobs:
           ADP_AZ_TEMPLATE: ${{ secrets.ADP_AZ_TEMPLATE }}
           ADP_TX_TEMPLATE: ${{ secrets.ADP_TX_TEMPLATE }}
           ADP_ROSTER_SETTINGS: ${{ secrets.ADP_ROSTER_SETTINGS }}
+          PAYROLL_ROLE_REVIEWS: ${{ secrets.PAYROLL_ROLE_REVIEWS }}
           GITHUB_TOKEN: ${{ github.token }}
         shell: bash
         run: |

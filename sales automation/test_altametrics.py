@@ -48,15 +48,12 @@ class AltametricsTests(unittest.TestCase):
 
 
 class CloudCompatibilityTests(unittest.IsolatedAsyncioTestCase):
-    async def test_overlay_handling_is_limited_to_authenticated_dashboard(self):
+    async def test_security_overlay_is_preserved_in_cloud_mode(self):
         from unittest.mock import Mock, AsyncMock, patch
-        for url, expected in [
-            ('https://app108b.altametrics.com/ers_webApp/dashboard', True),
-            ('https://aplogin.altametrics.com/ers/aplogin/LITTLE_CAESAR.html', False),
-            ('https://example.com/ers_webApp/dashboard', False),
-        ]:
-            page = Mock(url=url)
-            page.locator.return_value.evaluate_all = AsyncMock()
-            with patch.dict('os.environ', {'ALTAMETRICS_AUTH_MODE': 'cloud-legacy'}):
-                await altametrics.legacy_dashboard_popup(page)
-            self.assertEqual(page.locator.return_value.evaluate_all.await_count, int(expected))
+        page = Mock(url='https://app108b.altametrics.com/ers_webApp/dashboard', frames=[])
+        page.locator.return_value.inner_text = AsyncMock(return_value='Altametrics Security Check')
+        page.locator.return_value.evaluate_all = AsyncMock()
+        with patch.dict('os.environ', {'ALTAMETRICS_AUTH_MODE': 'cloud-legacy'}):
+            with self.assertRaisesRegex(RuntimeError, 'interactive'):
+                await altametrics.guard(page)
+        page.locator.return_value.evaluate_all.assert_not_called()

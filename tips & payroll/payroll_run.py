@@ -200,8 +200,9 @@ def normalize(report):
             issues.append(f'GEID {eid}: {exc}')
     if not roster:
         issues.append('No complete roster was returned')
-    return {'period': {'start_date': first, 'end_date': last}, 'verified': not issues, 'issues': issues,
-            'checks': checks, 'roster': roster, 'employees': employees, 'warnings': warnings}
+    from role_reviews import apply_role_reviews
+    return apply_role_reviews({'period': {'start_date': first, 'end_date': last}, 'verified': not issues, 'issues': issues,
+            'checks': checks, 'roster': roster, 'employees': employees, 'warnings': warnings})
 
 
 def style(sheet, widths):

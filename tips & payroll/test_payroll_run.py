@@ -1,4 +1,6 @@
 import copy
+import json
+import os
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -10,6 +12,11 @@ import payroll_run as p
 
 
 class PayrollPipelineTests(unittest.TestCase):
+    def setUp(self):
+        config = patch.dict(os.environ, {'PAYROLL_ROLE_REVIEWS': json.dumps({'version': 1, 'unresolved': []})})
+        config.start()
+        self.addCleanup(config.stop)
+
     def test_period_anchor_and_dst(self):
         for day, expected in [('2026-09-22T15:00:00', ('2026-09-08', '2026-09-21')),
                               ('2026-10-06T15:00:00', ('2026-09-22', '2026-10-05')),

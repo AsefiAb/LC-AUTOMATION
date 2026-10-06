@@ -51,6 +51,7 @@ jobs:
           START_DATE: ${{ inputs.start_date }}
           END_DATE: ${{ inputs.end_date }}
           CAAZ_GMAIL_APP_PASS: ${{ secrets.CAAZ_GMAIL_APP_PASS }}
+          PAYROLL_ROLE_REVIEWS: ${{ secrets.PAYROLL_ROLE_REVIEWS }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           python 'tips & payroll/send_reviewed.py' --start "$START_DATE" --end "$END_DATE" --folder "$RUNNER_TEMP/reviewed-payroll" --send

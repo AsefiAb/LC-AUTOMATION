@@ -23,6 +23,16 @@ private artifact. Preflight remains read-only and sends nothing. Preview generat
 the same review files without sending. Current ADP exports are still required
 each period before native import CSVs can be produced.
 
+Known unresolved job-title conflicts are retained in the private GitHub secret
+`PAYROLL_ROLE_REVIEWS`, with schema
+`{"version":1,"unresolved":[{"geid":"...","source_role":"co-manager","evidence_ref":"private report reference"}]}`.
+These reviews block tip allocation and final imports until the correct employee,
+role and effective dates have been confirmed. They do not change TCP's recorded
+role. A later title change does not silently close a review. After documented
+resolution, remove that entry; an explicit `{"version":1,"unresolved":[]}` means
+all known reviews have been closed. Missing/invalid configuration blocks readiness.
+The registry applies to scheduled runs and reviewed native-export packages.
+
 The historical implementation notes below describe earlier behavior. This section
 supersedes the earlier silent delivery holds for incomplete input.
 

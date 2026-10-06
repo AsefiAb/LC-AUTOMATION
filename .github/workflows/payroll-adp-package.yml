@@ -65,6 +65,7 @@ jobs:
           TCP_CLIENT_SECRET: ${{ secrets.TCP_CLIENT_SECRET }}
           TCP_API_KEY: ${{ secrets.TCP_API_KEY }}
           TCP_COMPANY_ID: ${{ vars.TCP_COMPANY_ID }}
+          PAYROLL_ROLE_REVIEWS: ${{ secrets.PAYROLL_ROLE_REVIEWS }}
           CO_GATEWAY_USER: ${{ secrets.CO_GATEWAY_USER }}
           CO_GATEWAY_PASS: ${{ secrets.CO_GATEWAY_PASS }}
           AZ_GATEWAY_USER: ${{ secrets.AZ_GATEWAY_USER }}

@@ -1,7 +1,7 @@
 """Read-only regional Altametrics dashboard adapter, based on the original repo.
 
 No password changes, guessed totals, workbook writes or emails.
-Cloud compatibility uses the original repository's dashboard overlay handling.
+Security challenges remain intact and require supported account access.
 """
 import asyncio
 import os
@@ -65,18 +65,6 @@ def parse_tables(tables):
     return candidates[0]
 
 
-async def legacy_dashboard_popup(page):
-    # The original cloud report removes this client-side dashboard overlay.
-    # Restrict that compatibility behavior to the authenticated Altametrics app;
-    # never alter a login page, password prompt, or unrelated modal.
-    if os.environ.get('ALTAMETRICS_AUTH_MODE') != 'cloud-legacy':
-        return
-    parsed = urlsplit(page.url)
-    if (parsed.scheme == 'https' and alt_host(parsed.hostname)
-            and 'ers_webApp' in parsed.path):
-        await page.locator('#overlayCap').evaluate_all('els => els.forEach(el => el.remove())')
-
-
 async def guard(page):
     text = (await page.locator('body').inner_text()).lower()
     if 'there was a problem in completing your request' in text or 'session timeout' in text:
@@ -95,8 +83,6 @@ async def guard(page):
             if await anchor.count() == 1 and await anchor.get_attribute('aria-checked') == 'true':
                 continue
             raise RuntimeError('Altametrics requires interactive verification')
-    # Check visible security state before handling any dashboard overlay.
-    await legacy_dashboard_popup(page)
 
 
 async def verify_account_region(page, region):

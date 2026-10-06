@@ -72,8 +72,9 @@ The owner computer, local runner and open Chrome windows are no longer needed.
 Its local Windows startup entry has been removed. The original sales repo stays
 paused to prevent duplicate reports.
 
-`ALTAMETRICS_AUTH_MODE=cloud-legacy` uses the original repo's dashboard overlay
-handling and SSO form submission, with bounded retries for stalled redirects.
+`ALTAMETRICS_AUTH_MODE=cloud-legacy` uses the original repo's SSO form
+submission, with bounded retries for stalled redirects. Security overlays are
+never removed; interactive challenges stop the affected collection.
 It never changes passwords or substitutes today's figures for a failed date.
 Credentials use COLORADO_USERNAME/COLORADO_PASSWORD, AZ_USERNAME/AZ_PASSWORD,
 and TX_USERNAME/TX_PASSWORD. The local browser helpers remain diagnostic tools
