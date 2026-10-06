@@ -1,1 +1,1 @@
-{"date": "2026-10-05", "status": "sending", "message_sha256": "70f19a2a0c584a3dca2ba6f7afdaf56379a6185427c8f079739312a173e43365", "message_id": "<payroll-review-AZ-2026-09-22-2026-10-05-tcp-hours-v3@caazllc.com>", "run_id": "37507842995"}
+{"date": "2026-10-05", "status": "sent", "message_sha256": "70f19a2a0c584a3dca2ba6f7afdaf56379a6185427c8f079739312a173e43365", "message_id": "<payroll-review-AZ-2026-09-22-2026-10-05-tcp-hours-v3@caazllc.com>", "run_id": "37507842995", "confirmed_at": "2026-10-06T18:02:34.050312+00:00"}
