@@ -158,6 +158,15 @@ The private `sales-delivery-state` branch records sends. If SMTP has an uncertai
 outcome, check Gmail Sent before clearing a receipt; automatic retries do not
 risk sending a duplicate. Private report artifacts are retained for 14 days.
 
+Failed enabled scheduled runs send an owner-only notice to **ab@caazllc.com**,
+once per report date. It identifies known blocked regions, links the GitHub run,
+and distinguishes a failed current email from earlier workbook gaps after a
+confirmed current delivery. It includes no stale workbook attachments or raw
+portal URLs. A separate alert receipt prevents retry slots from repeating the
+notice; the original workflow remains failed. Preview, repair and other manual
+runs do not send these notices. SMTP failures or a runner stopping before the
+notification step remain visible through GitHub's own run status.
+
 ## Connections and maintenance
 
 The current workflow requires `MS_CLIENT_ID`, `MS_REFRESH_TOKEN`, and

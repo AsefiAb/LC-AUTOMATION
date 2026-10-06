@@ -44,8 +44,9 @@ def reviewed_source(path, expected_sha256, start, end, config):
     if hashlib.sha256(content).hexdigest() != expected_sha256:
         raise ValueError('Reviewed source digest does not match this dispatch.')
     payload = json.loads(content)
-    if not isinstance(payload, dict) or set(payload) != {
-            'schema_version', 'start', 'end', 'regions', 'provenance', 'records'}:
+    required_fields = {'schema_version', 'start', 'end', 'regions', 'provenance', 'records'}
+    if (not isinstance(payload, dict) or not required_fields <= set(payload)
+            or not set(payload) <= required_fields | {'unavailable'}):
         raise ValueError('Reviewed source schema is incomplete or has unexpected fields.')
     if type(payload['schema_version']) is not int or payload['schema_version'] != 1:
         raise ValueError('Unsupported reviewed source schema version.')
@@ -106,8 +107,20 @@ def reviewed_source(path, expected_sha256, start, end, config):
         seen.add(key)
         by_day[key[0]].append({**stores[key[1]], 'report_date': key[0],
                               'sales': f'{sales:.2f}', 'transactions': int(transactions)})
+    unavailable = payload.get('unavailable', [])
+    if not isinstance(unavailable, list):
+        raise ValueError('Explicit unavailable sources must be a list.')
+    for item in unavailable:
+        if (not isinstance(item, dict) or set(item) != {'date', 'store', 'reason'}
+                or type(item['date']) is not str or type(item['store']) is not str
+                or not label(item['reason']) or '://' in item['reason']):
+            raise ValueError('Unavailable source requires an exact date, store and safe observed reason.')
+        key = (item['date'], item['store'])
+        if key not in expected or key in seen:
+            raise ValueError('Unavailable source duplicates a record or contains an unknown store/date.')
+        seen.add(key)
     if seen != expected:
-        raise ValueError('Reviewed source must cover every selected store on every requested date exactly once.')
+        raise ValueError('Reviewed source must cover every selected store/date with a record or explicit unavailable reason.')
     return selected, by_day, payload
 
 
@@ -121,6 +134,7 @@ def repair(start, end, config, *, preview=False, gaps_only=False,
         config, reviewed_rows, reviewed = reviewed_source(source_records, source_sha256, start, end, config)
     elif source_sha256:
         raise ValueError('A source digest requires an explicit reviewed source file.')
+    unavailable = reviewed.get('unavailable', []) if reviewed else []
     output = FOLDER / 'reports' / ('workbook-repair-' + start + '_' + end)
     output.mkdir(parents=True, exist_ok=True)
     audit = {'start': start, 'end': end, 'preview': preview, 'gaps_only': gaps_only,
@@ -130,7 +144,8 @@ def repair(start, end, config, *, preview=False, gaps_only=False,
     if reviewed:
         audit.update(source='Reviewed Altametrics browser records',
                      source_sha256=source_sha256, provenance=reviewed['provenance'],
-                     selected_regions=reviewed['regions'])
+                     selected_regions=reviewed['regions'], unavailable=unavailable,
+                     unverified_cells=[])
         (output / 'reviewed-source.json').write_text(json.dumps(reviewed, indent=2), encoding='utf-8')
 
     def save_audit():
@@ -148,6 +163,10 @@ def repair(start, end, config, *, preview=False, gaps_only=False,
         stores = [s['store'] for s in config['stores'] if s['region'] == region]
         for day in dates:
             cells = input_cells(snapshot['content'], stores, day)
+            missing_stores = {item['store'] for item in unavailable if item['date'] == day}
+            if reviewed:
+                audit['unverified_cells'].extend({**cell, 'date': day, 'region': region}
+                    for cell in cells if cell['store'] in missing_stores)
             if any(c['formula'] for c in cells):
                 raise WorkbookError('Recovery destination contains a formula: ' + region + ' ' + day)
             if not gaps_only or any(c['value'] == '' for c in cells):
@@ -158,7 +177,8 @@ def repair(start, end, config, *, preview=False, gaps_only=False,
         prepared.append((book, snapshot, stores, entry))
     save_audit()
     if not needed_dates:
-        audit.update(complete=True, result='No blank dated sales/transaction inputs found.')
+        audit.update(complete=not unavailable, result='No blank dated sales/transaction inputs found.',
+                     available_records_verified=True)
         save_audit()
         print(audit['result'], flush=True)
         return audit
@@ -173,15 +193,20 @@ def repair(start, end, config, *, preview=False, gaps_only=False,
                   for day in sorted(needed_dates)}
     (output / 'source-records.json').write_text(json.dumps(by_day, indent=2), encoding='utf-8')
     audit['dates_read'] = sorted(needed_dates)
+    audit['available_record_count'] = sum(len(rows) for rows in by_day.values())
+    audit['unavailable_record_count'] = len(unavailable)
 
     # All regions and dates must validate before the first upload.
     uploads = []
     for book, snapshot, stores, entry in prepared:
         content = snapshot['content']
         for day, rows in by_day.items():
-            content, changes = update(content, [r for r in rows if r['region'] == book['region']], day,
+            region_rows = [r for r in rows if r['region'] == book['region']]
+            if not region_rows:
+                continue  # All stores for this region/date explicitly unavailable.
+            content, changes = update(content, region_rows, day,
                 sales_whole_dollars=config.get('workbook_sales_rounding') == 'whole_dollars',
-                replace_conflicts=not gaps_only, only_blank=gaps_only)
+                replace_conflicts=not gaps_only, only_blank=gaps_only, store_layout=stores)
             entry['changes'].extend({**change, 'date': day} for change in changes)
         entry['proposed_sha256'] = hashlib.sha256(content).hexdigest()
         (output / (book['region'] + '.after.xlsx')).write_bytes(content)
@@ -206,10 +231,13 @@ def repair(start, end, config, *, preview=False, gaps_only=False,
             (output / (book['region'] + '.after.xlsx')).write_bytes(verified['content'])
         entry['verified'] = True
         save_audit()
-    audit.update(complete=True, finished_at=datetime.now(timezone.utc).isoformat())
+    audit.update(complete=not unavailable, available_records_verified=not preview,
+                 finished_at=datetime.now(timezone.utc).isoformat())
     save_audit()
-    print(('Preview prepared' if preview else 'Workbook recovery verified') + ': '
+    print(('Preview prepared' if preview else ('Available workbook corrections verified' if unavailable else 'Workbook recovery verified')) + ': '
           + str(sum(len(e['changes']) for e in audit['workbooks'])) + ' dated cells; no email sent.', flush=True)
+    if unavailable:
+        print(f'Incomplete recovery: {len(unavailable)} explicit store/date sources remain unavailable; those cells were preserved.', flush=True)
     return audit
 
 
@@ -223,9 +251,9 @@ def main():
     parser.add_argument('--source-sha256', help='Exact SHA-256 of the reviewed source file')
     args = parser.parse_args()
     config = json.loads((FOLDER / 'config.json').read_text())
-    repair(args.start, args.end, config, preview=args.preview, gaps_only=args.gaps_only,
-           source_records=args.source_records, source_sha256=args.source_sha256)
-    return 0
+    result = repair(args.start, args.end, config, preview=args.preview, gaps_only=args.gaps_only,
+                    source_records=args.source_records, source_sha256=args.source_sha256)
+    return 0 if result['complete'] else 2
 
 
 if __name__ == '__main__':

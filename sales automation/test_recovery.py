@@ -1,8 +1,10 @@
 import copy
 import hashlib
+import io
 import json
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -284,6 +286,69 @@ class ReviewedSourceTests(unittest.TestCase):
             self.assertEqual(result['selected_regions'], ['AZ'])
             self.assertEqual(result['source_sha256'], digest)
             self.assertEqual(result['emails_sent'], 0)
+
+    def test_explicit_unavailable_middle_store_preserves_column_and_reports_partial_completion(self):
+        config, payload = self.fixture()
+        config['stores'] = CONFIG['stores'][:3]
+        config['workbooks'] = CONFIG['workbooks'][:1]
+        payload['regions'] = ['CO']
+        payload['records'] = [
+            {'date': '2026-09-16', 'store': '3356-01', 'sales': '1234.56', 'transactions': 200},
+            {'date': '2026-09-16', 'store': '3356-03', 'sales': '5678.90', 'transactions': 300}]
+        payload['unavailable'] = [{'date': '2026-09-16', 'store': '3356-02',
+                                   'reason': 'No Information present for this Selection'}]
+        ns = workbooks.NS['s']
+        sheet = (f'<worksheet xmlns="{ns}"><sheetData><row r="2">'
+            + ''.join(f'<c r="{column}2" t="inlineStr"><is><t>{store}</t></is></c>'
+                      for column, store in zip('EFG', ['3356-01', '3356-02', '3356-03']))
+            + '</row><row r="12"><c r="A12" t="inlineStr"><is><t>2026-09-16</t></is></c>'
+            + '<c r="E12" s="3"/><c r="F12" s="3"><v>888</v></c><c r="G12" s="3"/>'
+            + '<c r="H12"><f>SUM(E12:G12)</f><v>0</v></c></row></sheetData></worksheet>')
+        output = io.BytesIO()
+        with zipfile.ZipFile(io.BytesIO(sample_workbook())) as source, zipfile.ZipFile(output, 'w') as dest:
+            for item in source.infolist():
+                data = sheet.encode() if item.filename in ('xl/worksheets/sheet1.xml', 'xl/worksheets/sheet2.xml') else source.read(item.filename)
+                dest.writestr(item, data)
+        original = output.getvalue()
+        updated, _ = workbooks.update(original, payload['records'], '2026-09-16',
+            sales_whole_dollars=True, replace_conflicts=True,
+            store_layout=['3356-01', '3356-02', '3356-03'])
+        with tempfile.TemporaryDirectory() as folder, patch.object(repair_workbooks, 'FOLDER', Path(folder)), \
+                patch.object(repair_workbooks, 'OneDrive') as drive, \
+                patch.object(repair_workbooks.altametrics, 'fetch_many') as fetch:
+            path, digest = self.save(folder, payload)
+            drive.return_value.read.side_effect = [{'content': original}, {'content': updated}]
+            result = repair_workbooks.repair('2026-09-16', '2026-09-16', config,
+                source_records=path, source_sha256=digest)
+            self.assertFalse(result['complete'])
+            self.assertTrue(result['available_records_verified'])
+            self.assertEqual(len(result['workbooks'][0]['changes']), 4)
+            self.assertEqual({c['cell'] for c in result['unverified_cells']}, {'F12'})
+            self.assertEqual({c['value'] for c in result['unverified_cells']}, {'888'})
+            fetch.assert_not_called()
+            sent_content = drive.return_value.write.call_args.args[1]
+            cells = workbooks.input_cells(sent_content, ['3356-01', '3356-02', '3356-03'], '2026-09-16')
+            sales = {c['cell']: c['value'] for c in cells if c['sheet'] == 'SALES'}
+            self.assertEqual(sales, {'E12': '1235', 'F12': '888', 'G12': '5679'})
+            with zipfile.ZipFile(io.BytesIO(sent_content)) as book:
+                root = workbooks.xml(book.read('xl/worksheets/sheet1.xml'))
+                self.assertEqual(root.find('.//' + workbooks.S + 'c[@r="H12"]/' + workbooks.S + 'f').text, 'SUM(E12:G12)')
+
+    def test_unavailable_cannot_overlap_records_or_hide_unknown_store(self):
+        for store in ('3759-01', '3759-99'):
+            with self.subTest(store=store), tempfile.TemporaryDirectory() as folder:
+                config, payload = self.fixture()
+                payload['unavailable'] = [{'date': '2026-09-16', 'store': store, 'reason': 'No information'}]
+                path, digest = self.save(folder, payload)
+                with self.assertRaisesRegex(ValueError, 'duplicates a record|unknown store'):
+                    repair_workbooks.reviewed_source(path, digest, payload['start'], payload['end'], config)
+
+    def test_partial_repair_cli_exits_incomplete_even_after_verified_available_writes(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(repair_workbooks, 'FOLDER', Path(folder)), \
+                patch('sys.argv', ['repair_workbooks.py', '--start', '2026-09-16', '--end', '2026-09-16']), \
+                patch.object(repair_workbooks, 'repair', return_value={'complete': False, 'available_records_verified': True}):
+            (Path(folder) / 'config.json').write_text(json.dumps(CONFIG))
+            self.assertEqual(repair_workbooks.main(), 2)
 
 
 if __name__ == '__main__':

@@ -8,6 +8,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import smtplib
 import ssl
 import sys
@@ -28,6 +29,45 @@ FOLDER = Path(__file__).resolve().parent
 
 class ReportError(RuntimeError):
     pass
+
+
+def update_run_status(reset=False, **values):
+    """Private structured progress for truthful owner-only failure notices."""
+    path = FOLDER / 'reports' / 'run-status.json'
+    status = {}
+    if path.exists() and not reset:
+        status = json.loads(path.read_text(encoding='utf-8'))
+    status.update(values)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(status, indent=2), encoding='utf-8')
+
+
+def safe_failure(exc):
+    """Translate errors without placing source URLs or exception payloads in email."""
+    detail = str(exc).lower()
+    regions = sorted(set(re.findall(r'(?:^|;\s*)(CO|AZ|TX):', str(exc))))
+    if 'interactive' in detail or 'verification' in detail or 'security check' in detail:
+        cause = 'Altametrics requested an interactive security check or account sign-in.'
+    elif isinstance(exc, DriveError):
+        cause = 'OneDrive access, download, upload or file-version verification failed.'
+    elif isinstance(exc, WorkbookError):
+        cause = 'Workbook layout, existing figures or uploaded values did not pass validation.'
+    elif 'email' in detail or 'smtp' in detail or 'gmail' in detail or 'delivery' in detail:
+        cause = 'Email delivery or its duplicate-prevention receipt was not confirmed.'
+    elif isinstance(exc, altametrics.AltametricsError):
+        cause = 'Altametrics source collection did not complete.'
+    elif isinstance(exc, ValueError):
+        cause = 'Report inputs or source figures did not pass validation.'
+    else:
+        cause = 'The reporting process stopped before completion.'
+    return {'regions': regions, 'cause': cause}
+
+
+def record_failure(exc):
+    try:
+        update_run_status(complete=False, failure=safe_failure(exc))
+    except Exception:
+        pass  # Never hide the original failed exit when diagnostics cannot save.
 
 
 def report_date(now, timezone_name):
@@ -229,7 +269,7 @@ class DeliveryLedger:
     A dedicated branch keeps receipts out of the application checkout.
     """
     def __init__(self, day, namespace='sales'):
-        if namespace not in ('sales', 'payroll'):
+        if namespace not in ('sales', 'payroll', 'sales-alert'):
             raise ReportError('Unknown delivery namespace')
         repo = os.environ.get('GITHUB_REPOSITORY', '')
         if repo != 'AsefiAb/LC-AUTOMATION' or not os.environ.get('GITHUB_TOKEN'):
@@ -306,6 +346,7 @@ def check_email_login():
 
 
 def run(day, config, preview=False):
+    update_run_status(phase='current report', report_date=day)
     issues = setup_issues(config, require_email=not preview)
     if issues:
         raise ReportError('\n'.join(issues))
@@ -314,11 +355,13 @@ def run(day, config, preview=False):
     if ledger:
         previous = ledger.read()
         if previous and previous.get('status') == 'sent':
+            update_run_status(current_delivery='already_sent')
             print('This report date was already delivered; no changes made.')
             return
         if previous:
             raise ReportError('A previous delivery is unresolved; inspect its receipt before retrying.')
     if config.get('source') == 'Altametrics':
+        update_run_status(phase='source reports')
         rows = altametrics.validate(day, altametrics.fetch(day, config), config)
         if config.get('labor_source') in ('TCP base wage estimate', 'TCP wage estimate'):
             try:
@@ -331,6 +374,8 @@ def run(day, config, preview=False):
     else:
         labor = tcp_labor.fetch(day, config)
         rows = validate(day, fetch_metrics(day, config), labor, config)
+    update_run_status(phase='workbook preparation',
+                      source_regions_verified=[book['region'] for book in config['workbooks']])
     drive = OneDrive()
     prepared = []
     output = FOLDER / 'reports' / day
@@ -340,6 +385,7 @@ def run(day, config, preview=False):
     # Preserve source totals before a workbook conflict or download failure.
     (output / 'store-totals.json').write_text(json.dumps(rows, indent=2), encoding='utf-8')
     for book in config['workbooks']:
+        update_run_status(active_region=book['region'])
         snapshot = drive.read(book['url'])
         region_rows = [row for row in rows if row['region'] == book['region']]
         content, changes = update(snapshot['content'], region_rows, day,
@@ -347,8 +393,11 @@ def run(day, config, preview=False):
         path = output / (book['region'] + ' Sales ' + day + '.xlsx')
         prepared.append((book, snapshot, content, changes, path))
     # All three files are validated before the first upload.
+    verified_regions = []
     for book, snapshot, content, changes, path in prepared:
+        update_run_status(phase='workbook update', active_region=book['region'])
         if not preview and changes:
+            update_run_status(workbook_updates_started=True)
             drive.write(snapshot, content)
             verified = drive.read(book['url'])
             _, remaining = update(verified['content'], [r for r in rows if r['region'] == book['region']], day,
@@ -357,6 +406,9 @@ def run(day, config, preview=False):
                 raise ReportError('OneDrive did not retain all expected updates.')
             content = verified['content']
         path.write_bytes(content)
+        if not preview:
+            verified_regions.append(book['region'])
+            update_run_status(workbook_regions_verified=verified_regions)
     message = email_message(day, rows, [item[4] for item in prepared], config)
     if len(message.as_bytes()) > 24_000_000:
         raise ReportError('Email attachments exceed the supported 24 MB encoded-message limit.')
@@ -365,7 +417,10 @@ def run(day, config, preview=False):
     if preview:
         print('Private preview prepared. No workbook uploads or email sends performed.')
     else:
-        print('Daily report ' + deliver(message, ledger, day) + '.')
+        update_run_status(phase='email delivery', active_region=None, current_delivery='unconfirmed')
+        delivered = deliver(message, ledger, day)
+        update_run_status(current_delivery='sent' if delivered == 'sent' else 'already_sent')
+        print('Daily report ' + delivered + '.')
 
 
 def main():
@@ -384,6 +439,10 @@ def main():
         print('true' if eligible else 'false')
         return 0
     day = checked_date(args.date or report_date(now, config['timezone']), config)
+    update_run_status(reset=True, report_date=day, complete=False,
+        current_delivery='not_attempted', workbook_updates_started=False,
+        workbook_regions_verified=[], source_regions_verified=[],
+        recovery={'status': 'not_requested'})
     if not 0 <= args.catch_up_days <= 14:
         raise ReportError('Catch-up window must be between 0 and 14 days.')
     if args.catch_up_days and (args.preview or args.preflight):
@@ -440,17 +499,23 @@ def main():
         from repair_workbooks import repair
         target = date.fromisoformat(day)
         try:
+            update_run_status(phase='earlier workbook recovery', recovery={'status': 'running'})
             repair((target - timedelta(days=args.catch_up_days)).isoformat(),
                    (target - timedelta(days=1)).isoformat(), config, gaps_only=True)
+            update_run_status(recovery={'status': 'complete'})
         except Exception as exc:
             # Today's delivery remains independent from older source outages.
             # The overall run still fails, preserving a visible recovery alert.
             catch_up_problem = str(exc) if isinstance(exc, (DriveError, WorkbookError,
                 altametrics.AltametricsError, ValueError)) else type(exc).__name__
+            update_run_status(recovery={'status': 'failed',
+                'start': (target - timedelta(days=args.catch_up_days)).isoformat(),
+                'end': (target - timedelta(days=1)).isoformat(), **safe_failure(exc)})
             print('Earlier workbook gaps remain unresolved: ' + catch_up_problem, flush=True)
     run(day, config, args.preview)
     if catch_up_problem:
         raise ReportError('Current report completed, but earlier workbook gaps need attention: ' + catch_up_problem)
+    update_run_status(complete=True, phase='complete')
     return 0
 
 
@@ -458,9 +523,11 @@ if __name__ == '__main__':
     try:
         sys.exit(main())
     except (ReportError, DriveError, WorkbookError, tcp_labor.InspectionError, altametrics.AltametricsError, ValueError) as exc:
+        record_failure(exc)
         print(str(exc), file=sys.stderr)
         sys.exit(1)
     except Exception as exc:
+        record_failure(exc)
         # Do not let transport tracebacks print tokens, signed links, or records.
         print('Unexpected failure (' + type(exc).__name__ + '); no success is assumed.', file=sys.stderr)
         sys.exit(1)

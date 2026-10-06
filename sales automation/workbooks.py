@@ -137,13 +137,14 @@ def input_cells(content, stores, report_date):
 
 
 def update(content, region_rows, report_date, sales_whole_dollars=False,
-           replace_conflicts=False, only_blank=False):
+           replace_conflicts=False, only_blank=False, store_layout=None):
     if replace_conflicts and only_blank:
         raise WorkbookError('Choose either source correction or blank-cell recovery.')
     target = date.fromisoformat(report_date)
     values = {row['store']: row for row in region_rows}
-    stores = sorted(values)
-    if len(values) != len(region_rows) or not stores:
+    stores = sorted(store_layout if store_layout is not None else values)
+    if (len(values) != len(region_rows) or not values or len(stores) != len(set(stores))
+            or not set(values) <= set(stores)):
         raise WorkbookError('Duplicate or empty store data.')
     source, workbook, sheets, strings, date1904 = load_workbook(content)
     changes, plans = [], []
@@ -151,6 +152,8 @@ def update(content, region_rows, report_date, sales_whole_dollars=False,
     for name, (path, root) in sheets.items():
         metric = 'sales' if name == 'SALES' else 'transactions'
         for store, address, cell in plan_sheet(root, strings, stores, target, date1904):
+            if store not in values:
+                continue  # Explicitly unavailable source; preserve its true column.
             desired = Decimal(str(values[store][metric]))
             if metric == 'sales' and sales_whole_dollars:
                 # Match the original automation's round() for workbook inputs.

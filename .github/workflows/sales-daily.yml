@@ -118,6 +118,12 @@ jobs:
             *) exit 1 ;;
           esac
           python 'sales automation/daily_report.py' "${args[@]}"
+      - name: Notify owner if scheduled reporting is incomplete
+        if: failure() && github.event_name == 'schedule' && vars.SALES_AUTOMATION_ENABLED == 'true'
+        env:
+          CAAZ_GMAIL_APP_PASS: ${{ secrets.CAAZ_GMAIL_APP_PASS }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python 'sales automation/notify_failure.py'
       - name: Keep private reports briefly
         if: always() && steps.gate.outputs.run == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
