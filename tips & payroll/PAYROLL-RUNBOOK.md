@@ -29,8 +29,18 @@ employee punch/role problem holds the tip pool at every store where that person
 worked, because missing time can also change cross-store overtime. Unknown or
 global source failures hold every pool. Held pools are labeled unallocated, never
 zero; clean stores continue to show calculated tips even when ADP exports are old.
-These packages contain **no ADP CSV** and must not be imported or treated as final
-payroll. Issues are included in the workbooks. The workflow remains failed with
+At the owner's October 6 direction, these packages now also include the native
+regional EPI CSV whenever its supplied ADP template validates: CO `EPIFND00.CSV`,
+AZ `EPIFNC00.CSV`, TX `EPIZKT00.CSV`. Source issues must not suppress those files.
+Candidates preserve the last supplied ADP roster, batch controls, names, IDs,
+rates and row order. They contain known matched amounts; unverified amounts and
+unmatched ADP-only rows stay blank, never guessed zero. Unmatched TCP people and
+their known amounts appear in the regional issues sheet. A candidate plus those
+named exceptions must account for every known amount. Old roster settings are
+explicitly flagged, not silently declared current. A missing or invalid template
+cannot be fabricated and is reported as an attachment failure.
+The CSVs are incomplete candidates and must not be treated as final payroll until
+the issues and current ADP roster are reconciled. The workflow remains failed with
 exit code 2 until reconciliation is complete; successful email transport alone
 does not make payroll correct.
 
@@ -39,7 +49,9 @@ the same review email, and a review receipt does not prevent a later corrected
 payroll package. Check `review-delivery-results.json` and `REVIEW ONLY/` in the
 private artifact. Preflight remains read-only and sends nothing. Preview generates
 the same review files without sending. Current ADP exports are still required
-each period before native import CSVs can be produced.
+each period before payroll can be marked fully ready; old templates can produce
+explicitly incomplete EPI candidates for delivery. An authorized replacement uses
+the `review_revision` input to send once without deleting prior delivery receipts.
 
 On October 6 the owner confirmed employees clock directly in TCP and authorized
 TCP as the payroll hours source for **September 22–October 5 and future periods**.

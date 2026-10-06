@@ -99,7 +99,7 @@ jobs:
         if: failure() && steps.gate.outputs.run == 'true'
         shell: bash
         run: |
-          echo 'Payroll reconciliation did not complete. Review-only Excel reports or incomplete payroll reports may have been emailed; check delivery receipts before retrying. REVIEW ONLY packages contain no ADP import CSV. Inspect private readiness, review-delivery-results, source-reconciliation, and regional issues reports. Email delivery is not payroll approval.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Payroll reconciliation did not complete. Regional reports and incomplete EPI CSV candidates may have been emailed; check delivery receipts before retrying. CSVs preserve the supplied ADP template and known matched amounts; unknown amounts stay blank. Inspect private readiness, review-delivery-results, source-reconciliation, and regional issues reports. Email delivery is not payroll approval.' >> "$GITHUB_STEP_SUMMARY"
           echo 'If TCP returned closed shifts with zero calculated hours, reconcile a matching Complete Payroll OpenXML export using the payroll runbook. Never replace missing hours with zero or estimate overtime.' >> "$GITHUB_STEP_SUMMARY"
       - name: Keep private payroll reports briefly
         if: always() && steps.gate.outputs.run == 'true'

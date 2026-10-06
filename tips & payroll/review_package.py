@@ -1,4 +1,4 @@
-"""Actionable, non-importable reports when payroll source/roster checks block.
+"""Deliver reports and incomplete EPI candidates when payroll checks need review.
 
 These workbooks are review evidence, never a substitute for final payroll. Unknown
 hours and unallocated tips stay blank. Review delivery has separate receipts so a
@@ -195,6 +195,7 @@ def write_review(path, rows, issues, gateway_total=None, issues_only=False, tip_
 
 def prepare_review(dates, output, issues, payroll=None, report=None, tips=None, comparison=None, revision=''):
     from payroll_run import STORES
+    from review_adp import prepare_candidate, issue_notes
     revision = review_revision(revision)
     output.mkdir(parents=True, exist_ok=True)
     allocation = {}
@@ -203,6 +204,7 @@ def prepare_review(dates, output, issues, payroll=None, report=None, tips=None, 
     tip_totals = {p['store']: p['total_tips'] for p in (tips or {}).get('stores', [])}
     comparison = comparison or {}
     messages = []
+    csv_audits = {}
     unmapped = [p for p in rows if p['store'] not in STORES]
     corrections = []
     if report:
@@ -232,12 +234,15 @@ def prepare_review(dates, output, issues, payroll=None, report=None, tips=None, 
                 notes.extend(store + ': ' + issue for issue in detail['issues'])
         notes = list(dict.fromkeys(notes))
         regional = combine(regional_rows)
+        csv_filename, csv_audit = prepare_candidate(prefix, regional, dates, output)
+        csv_audits[code] = csv_audit
+        notes.extend(issue_notes(csv_audit))
         issues_filename = f'{code} Payroll issues {label}.xlsx'
         write_review(output / issues_filename, [], notes, issues_only=True)
         pointer = [f'Source checks and exact timecards to correct: {issues_filename}', f'Period: {label}']
         filename = f'{code} Payroll REVIEW {label}.xlsx'
         write_review(output / filename, regional, pointer)
-        files = [filename, issues_filename]
+        files = ([csv_filename] if csv_filename else []) + [filename, issues_filename]
         for store in STORES:
             if store.startswith(prefix + '-'):
                 filename = f'{store} Payroll REVIEW {label}.xlsx'
@@ -256,7 +261,7 @@ def prepare_review(dates, output, issues, payroll=None, report=None, tips=None, 
         message['Message-ID'] = f'<payroll-review-{code}-{dates["start_date"]}-{dates["end_date"]}{suffix}@caazllc.com>'
         if revision:
             message['X-Payroll-Review-Revision'] = revision
-        message['X-ADP-Import-Status'] = 'blocked'
+        message['X-ADP-Import-Status'] = 'incomplete' if csv_filename else 'blocked'
         totals = {f: sum(Decimal(p[f]) for p in regional_rows if p[f] is not None)
                   for f in ('regular_hours', 'overtime_hours', 'total_hours', 'tips')}
         region_stores = [p for s, p in allocation['stores'].items() if s.startswith(prefix + '-')]
@@ -272,8 +277,10 @@ def prepare_review(dates, output, issues, payroll=None, report=None, tips=None, 
         message.set_content(f'Hi Alicia,\n\nAttached are the {name} payroll review reports for {label}.\n\n'
             + ('Updated review reports; replace the earlier review attachments for this period.\n\n' if revision else '')
             + totals_text + '\n'
+            + (f'Included: {csv_filename}. This CSV contains known matched amounts and is incomplete; '
+               'review the issues before finalizing payroll. It preserves the last supplied ADP roster. '
+               if csv_filename else 'The EPI CSV could not be created from the supplied ADP template; see the issues sheet. ')
             +
-            'Payroll is incomplete. These Excel files are for review and cannot be imported into ADP. '
             f'See {issues_filename} for source checks and exact timecards to correct. '
             'Blank amounts are unverified, not zero.\n\n'
             + ('Tips are calculated only for stores with complete TCP hours and verified roles. '
@@ -281,13 +288,15 @@ def prepare_review(dates, output, issues, payroll=None, report=None, tips=None, 
                else 'Employee tips have not been allocated because the payroll inputs are incomplete.\n')
             + '\nCorrected payroll reports must be generated after the issues are resolved.\n')
         for filename in files:
-            message.add_attachment((output / filename).read_bytes(), maintype='application',
-                subtype='vnd.openxmlformats-officedocument.spreadsheetml.sheet', filename=filename)
+            message.add_attachment((output / filename).read_bytes(),
+                maintype='text' if filename.endswith('.CSV') else 'application',
+                subtype='csv' if filename.endswith('.CSV') else 'vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                filename=filename)
         (output / (message['Subject'] + '.eml')).write_bytes(message.as_bytes())
         messages.append(message)
     audit = {'period': dates, 'ready': False, 'reports_deliverable': False, 'review_reports_deliverable': True,
              'issues': issues, 'tip_allocation_provisional': allocated, 'source_reconciliation': comparison,
-             'store_allocation': allocation, 'review_revision': revision}
+             'store_allocation': allocation, 'review_revision': revision, 'epi_candidates': csv_audits}
     (output / 'review-payroll-rows.json').write_text(json.dumps(rows, indent=2), encoding='utf-8')
     (output / 'review-readiness.json').write_text(json.dumps(audit, indent=2), encoding='utf-8')
     return messages

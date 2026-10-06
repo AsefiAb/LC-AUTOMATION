@@ -32,7 +32,7 @@ class PayrollReviewTests(unittest.TestCase):
                 'start_date': '2026-09-08', 'end_date': '2026-09-21'}})}, clear=True):
             _, issues = payroll_run.roster_setup(self.dates)
         self.assertEqual(len(issues), 4)
-        self.assertIn('older payroll controls cannot be reused', issues[0])
+        self.assertIn('Current-period ADP roster is not verified', issues[0])
         for text in ('bad-json', '[]'):
             with patch.dict(os.environ, {'ADP_ROSTER_SETTINGS': text}, clear=True):
                 self.assertTrue(payroll_run.roster_setup(self.dates)[1])

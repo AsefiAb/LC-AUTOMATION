@@ -20,7 +20,7 @@ def name_key(value):
     return ' '.join(unicodedata.normalize('NFKC', value).casefold().split())
 
 
-def validate_import(region, filename, raw):
+def validate_import(region, filename, raw, *, allow_blank=False):
     """Require a native ADP CSV, never an Excel workbook with a renamed suffix."""
     code, company, expected = FILES[region]
     if filename != expected:
@@ -37,13 +37,13 @@ def validate_import(region, filename, raw):
         raise ValueError(f'{code}: CSV must contain one {company} payroll batch')
     parsed = read_template(raw, company, next(iter(batches)))
     for row in parsed['employees'].values():
-        if any(not re.fullmatch(r'\d+\.\d{2}', value) for value in row[6:]):
+        if any(not (allow_blank and value == '') and not re.fullmatch(r'\d+\.\d{2}', value) for value in row[6:]):
             raise ValueError(f'{code}: hours and tips must be nonnegative decimal values with two places')
     return {'filename': expected, 'company_code': company,
             'employee_rows': len(parsed['employees']), 'content_type': 'text/csv'}
 
 
-def fill_region(summary, region, raw, overrides=None, allow_missing_zero=False):
+def fill_region(summary, region, raw, overrides=None, allow_missing_zero=False, *, review_people=None):
     code, company, filename = FILES[region]
     # Identify the batch from employee rows; reject multiple/wrong batches.
     try:
@@ -55,7 +55,13 @@ def fill_region(summary, region, raw, overrides=None, allow_missing_zero=False):
     if len(batches) != 1:
         raise ValueError(f'{code}: expected one ADP batch for {company}')
     template = read_template(raw, company, next(iter(batches)))
-    people = regional_people(summary)[region]
+    review = review_people is not None
+    people = review_people if review else regional_people(summary)[region]
+    def amounts(person):
+        if person is None:
+            return [''] * 3 if review else ['0.00'] * 3
+        return [('' if person[k] is None else person[k]) if review else person[k]
+                for k in ('regular_hours', 'overtime_hours', 'tips')]
     names = defaultdict(list)
     for target, row in template['employees'].items():
         names[name_key(row[4])].append(target)
@@ -65,6 +71,8 @@ def fill_region(summary, region, raw, overrides=None, allow_missing_zero=False):
             if target not in names[name_key(alias)]:
                 names[name_key(alias)].append(target)
     mappings, used, issues, warnings, missing = {}, set(), [], [], []
+    if review:
+        issues.append(f'{code}: incomplete payroll candidate; reconcile source issues and current ADP roster before finalizing')
     overrides = overrides or {}
     for person in people:
         geid = person['geid']
@@ -75,12 +83,16 @@ def fill_region(summary, region, raw, overrides=None, allow_missing_zero=False):
             if (target not in template['employees'] or spec['adp_name'] != template['employees'][target][4]
                     or name_key(spec['tcp_name']) != name_key(fullname)):
                 issues.append(f'{code} GEID {geid}: saved identity no longer agrees with both rosters')
+                missing.append(dict(region=code, geid=geid, name=fullname,
+                    **{k: person[k] for k in ('regular_hours', 'overtime_hours', 'tips')},
+                    reason='Saved ADP identity no longer agrees with both rosters'))
                 continue
             matches = [target]
         else:
             matches = names.get(name_key(fullname), [])
         if len(matches) != 1 or matches[0] in used:
-            zero = all(cents(person[k], k) == 0 for k in ('regular_hours', 'overtime_hours', 'tips'))
+            zero = all(person[k] is not None and cents(person[k], k) == 0
+                       for k in ('regular_hours', 'overtime_hours', 'tips'))
             detail = dict(region=code, geid=geid, name=fullname, regular_hours=person['regular_hours'],
                           overtime_hours=person['overtime_hours'], tips=person['tips'],
                           reason='ADP identity missing or ambiguous')
@@ -101,9 +113,14 @@ def fill_region(summary, region, raw, overrides=None, allow_missing_zero=False):
             output.append(original)
             continue
         person = mappings.get(target)
-        values = [person[k] for k in ('regular_hours', 'overtime_hours', 'tips')] if person else ['0.00'] * 3
+        values = amounts(person)
         if not person:
-            warnings.append(f'{code} ADP file {row[2]}: no matched TCP work in this region; retained at zero')
+            warnings.append(f'{code} ADP file {row[2]} ({row[4]}): no matched TCP work in this region; '
+                            + ('amounts blank pending roster review' if review else 'retained at zero'))
+        elif review and '' in values:
+            issues.append(f'{code} GEID {person["geid"]} ({row[4]}): unverified '
+                          + ', '.join(k for k, v in zip(('regular hours', 'overtime hours', 'tips'), values) if v == '')
+                          + '; left blank in CSV, not zero')
         buffer = io.StringIO(newline='')
         csv.writer(buffer, lineterminator=template['newline']).writerow(row[:6] + values)
         output.append(buffer.getvalue())
@@ -119,14 +136,18 @@ def fill_region(summary, region, raw, overrides=None, allow_missing_zero=False):
         if row[:6] != template['employees'][key][:6]:
             raise ValueError('ADP identity/rate fields changed')
         person = mappings.get(key)
-        expected = [person[k] for k in ('regular_hours', 'overtime_hours', 'tips')] if person else ['0.00'] * 3
+        expected = amounts(person)
         if row[6:] != expected:
             raise ValueError('ADP employee hours or tips changed during export')
     totals = {}
     for i, key in enumerate(('regular_hours', 'overtime_hours', 'tips')):
-        total = sum(cents(r[6 + i], key) for r in saved['employees'].values())
-        expected = sum(cents(p[key], key) for p in people)
+        total = sum(cents(r[6 + i], key) for r in saved['employees'].values() if r[6 + i] != '')
+        expected = sum(cents(p[key], key) for p in people if p[key] is not None)
         totals[key] = decimal_text(total)
+        if review:
+            excluded = sum(cents(p[key], key) for p in missing if p[key] is not None)
+            if total + excluded != expected:
+                raise ValueError('EPI candidate plus named issues must account for every known amount')
         if total != expected:
             issues.append(f'{code}: {key} does not reconcile to TCP/Gateway')
     return content, {'region': code, 'filename': filename, 'ready': not issues,

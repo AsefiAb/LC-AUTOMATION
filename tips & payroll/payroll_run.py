@@ -352,7 +352,7 @@ def roster_setup(dates):
         return {}, ['ADP roster settings are invalid; obtain current-period ADP exports.']
     issues = []
     if settings.get('period') != dates:
-        issues.append('Current-period ADP roster exports/settings are required; older payroll controls cannot be reused.')
+        issues.append('Current-period ADP roster is not verified; EPI candidate retains the last supplied roster and batch controls for review.')
     for region in ('CO', 'AZ', 'TX'):
         if not os.environ.get('ADP_' + region + '_TEMPLATE'):
             issues.append('Missing current ADP export: ' + region)
@@ -440,7 +440,7 @@ def main():
         from review_package import prepare_review, send_review
         messages = prepare_review(dates, output / 'REVIEW ONLY', issues, payroll, report, tips, comparison,
                                   revision=args.review_revision)
-        print('Prepared three regional payroll review packages. No ADP CSV; payroll remains incomplete.')
+        print('Prepared three regional payroll packages with EPI candidates from available valid templates and issues sheets; payroll remains incomplete.')
         if args.mode == 'deliver' and os.environ.get('CAAZ_GMAIL_APP_PASS'):
             results = send_review(messages, dates['end_date'], revision=args.review_revision)
             (output / 'review-delivery-results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
