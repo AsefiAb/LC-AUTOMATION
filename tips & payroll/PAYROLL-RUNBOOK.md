@@ -7,6 +7,15 @@ can delay scheduled jobs, so UTC catch-up triggers also run at 07 and 37 minutes
 past 15:00–18:00 UTC. The Pacific date/hour gate rejects the wrong week and any
 attempt before 08:00. An exact email arrival time is not guaranteed.
 
+Missing-punch automation is payroll-day-only, as requested by the owner on
+October 6. Managers handle daily timecard corrections. Keep exception checks
+inside this biweekly workflow and its same-day retries; do not add daily
+missing-punch notifications. Each retry reads TCP again. Actual clock-out
+corrections must be made in TCP before the affected hours/tips are finalized.
+Scheduled end times may be presented only as proposed corrections, never as
+verified worked time. Schedule lookup is not connected yet: confirm whether
+TCP or Altametrics holds the schedules before implementing that comparison.
+
 Missing TCP calculations, failed Gateway access, or old/missing ADP roster exports
 now produce three regional **INCOMPLETE PAYROLL REVIEW** emails when delivery is
 enabled, with regional and per-store review Excel attachments. Unknown amounts
