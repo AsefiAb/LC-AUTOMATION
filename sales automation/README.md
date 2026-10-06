@@ -111,7 +111,8 @@ Cc: jeff@caazllc.com, caleb@lccollc.com, wilder@lccollc.com.
 ## Schedule and manual runs
 
 The target is daily **08:00 America/Los_Angeles**, reporting the previous day.
-UTC checks at 15:00, 16:00, and 18:00 cover daylight saving and delayed runs.
+UTC checks at 15:00, 16:00, 18:00, 20:00 and 22:00 cover daylight saving,
+delayed runs and temporary portal failures.
 The Pacific time gate skips early runs; the delivery receipt skips dates already
 sent. GitHub jobs may start late, so exact 08:00 execution is not guaranteed.
 `SALES_AUTOMATION_ENABLED=true` is enabled. Do not enable the old schedule too.
@@ -123,11 +124,38 @@ GitHub Actions -> **Daily sales report** -> **Run workflow**:
 - `preview`: prepare three workbook copies and `email-preview.eml` without uploads
   or email.
 - `deliver`: update the original workbooks when needed and send the report.
+- `repair-preview`: reread every store for `report_date` through `end_date`
+  inclusive and prepare corrections, backups and a cell audit without uploading
+  or emailing. Both dates use YYYY-MM-DD; blank end date means start date only.
+- `repair`: perform the same source checks, then correct the existing workbook
+  input cells. No email is sent, including for dates already delivered.
+
+Scheduled deliveries also check the preceding seven report dates for blank
+sales/transaction cells and fill them from fresh Altametrics reports. Existing
+nonblank historical values are preserved by this automatic catch-up; use
+`repair` for known incorrect values. Only the current daily email is sent.
+An older unresolved gap keeps the run failed even if the current email succeeds.
+
+Repair accepts at most 31 completed dates. It reuses one login per region,
+requires all 18 stores on every requested source date, and validates all three
+workbooks before any upload. It never changes formulas, date rows, store labels,
+styles or other workbook parts. Uploads require the original OneDrive version
+and every changed cell is read back. The private artifact includes original
+and corrected workbooks, fresh source figures, and `repair-audit.json` with
+each cell's previous and corrected value. `complete: true` and `verified: true`
+for each workbook confirm a live repair. A preview intentionally does not verify
+uploads. If a later upload fails, earlier verified uploads remain recorded;
+rerunning the same dates safely compares them with fresh source data.
+
+Expired OneDrive signed download URLs are renewed through authenticated Graph
+content requests. Read-only transient transport failures are retried; version
+conflicts and uploads are not blindly retried. Altametrics interactive security
+checks still stop the affected run and are never treated as valid reports.
 
 Leave the date blank for yesterday Pacific, or enter a completed date explicitly.
 The private `sales-delivery-state` branch records sends. If SMTP has an uncertain
 outcome, check Gmail Sent before clearing a receipt; automatic retries do not
-risk sending a duplicate. Private report artifacts are retained for three days.
+risk sending a duplicate. Private report artifacts are retained for 14 days.
 
 ## Connections and maintenance
 

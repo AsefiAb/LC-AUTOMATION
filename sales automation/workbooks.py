@@ -122,7 +122,24 @@ def inspect_layout(content, stores, report_date):
         source.close()
 
 
-def update(content, region_rows, report_date, sales_whole_dollars=False):
+def input_cells(content, stores, report_date):
+    """Inspect exact dated inputs, so recovery can identify real blank cells."""
+    source, _, sheets, strings, date1904 = load_workbook(content)
+    try:
+        return [{'sheet': name, 'store': store, 'cell': address,
+                 'value': cell_value(cell, strings),
+                 'formula': cell is not None and cell.find(S + 'f') is not None}
+                for name, (_, root) in sheets.items()
+                for store, address, cell in plan_sheet(
+                    root, strings, sorted(stores), date.fromisoformat(report_date), date1904)]
+    finally:
+        source.close()
+
+
+def update(content, region_rows, report_date, sales_whole_dollars=False,
+           replace_conflicts=False, only_blank=False):
+    if replace_conflicts and only_blank:
+        raise WorkbookError('Choose either source correction or blank-cell recovery.')
     target = date.fromisoformat(report_date)
     values = {row['store']: row for row in region_rows}
     stores = sorted(values)
@@ -143,15 +160,19 @@ def update(content, region_rows, report_date, sales_whole_dollars=False):
                 raise WorkbookError('Refusing to overwrite a formula in ' + name + '!' + address)
             old = cell_value(cell, strings)
             if old != '':
+                if only_blank:
+                    continue
                 try:
                     agrees = Decimal(old) == desired
                 except Exception:
                     agrees = False
-                if not agrees:
+                if not agrees and not replace_conflicts:
                     raise WorkbookError('Existing value conflicts with source at ' + name + '!' + address)
-                continue
+                if agrees:
+                    continue
             plans.append((root, address, cell, desired))
-            changes.append({'sheet': name, 'cell': address, 'store': store, 'value': str(desired)})
+            changes.append({'sheet': name, 'cell': address, 'store': store,
+                            'old_value': old, 'value': str(desired)})
     for root, address, cell, desired in plans:
         if cell is None:
             row_num = re.search(r'\d+$', address)[0]

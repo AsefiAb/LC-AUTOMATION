@@ -4,6 +4,7 @@ Uses file APIs because Graph's Excel workbook APIs exclude OneDrive Consumer.
 """
 import base64
 import os
+import time
 from urllib.parse import quote, urlparse
 import requests
 
@@ -16,6 +17,20 @@ def checked(response, context):
     if not response.ok:
         raise DriveError(f'{context} failed (HTTP {response.status_code}); response details withheld.')
     return response
+
+
+def read_request(method, url, **kwargs):
+    """Retry bounded read-only transport failures without exposing signed URLs."""
+    for attempt in range(3):
+        try:
+            response = requests.request(method, url, **kwargs)
+        except (requests.Timeout, requests.ConnectionError):
+            if attempt == 2:
+                raise DriveError('OneDrive read failed after temporary connection errors.') from None
+        else:
+            if response.status_code not in (429, 500, 502, 503, 504) or attempt == 2:
+                return response
+        time.sleep(2 ** attempt)
 
 
 class OneDrive:
@@ -39,7 +54,8 @@ class OneDrive:
 
     def request(self, method, path, **kwargs):
         headers = {'Authorization': 'Bearer ' + self.token, **kwargs.pop('headers', {})}
-        response = requests.request(method, 'https://graph.microsoft.com/v1.0' + path,
+        requester = read_request if method == 'GET' else requests.request
+        response = requester(method, 'https://graph.microsoft.com/v1.0' + path,
                                     headers=headers, timeout=90, allow_redirects=False, **kwargs)
         return checked(response, 'OneDrive ' + method)
 
@@ -58,16 +74,27 @@ class OneDrive:
         if item.get('size', 0) > 25_000_000:
             raise DriveError('Workbook exceeds the 25 MB email/update limit.')
         download = item['@microsoft.graph.downloadUrl']
-        for attempt in range(5):
+        renewed = False
+        for attempt in range(7):
             url = urlparse(download)
             if url.scheme != 'https' or not (url.hostname == 'my.microsoftpersonalcontent.com' or any((url.hostname or '').endswith(suffix)
                     for suffix in ('.1drv.com', '.sharepoint.com', '.live.com', '.onedrive.com'))):
                 # Only the hostname is safe to log; the full download URL is signed.
                 raise DriveError('Unexpected OneDrive download host: ' + (url.hostname or '(missing)'))
-            response = requests.get(download, timeout=90, allow_redirects=False)
+            response = read_request('GET', download, timeout=90, allow_redirects=False)
             if response.status_code in (301, 302, 303, 307, 308):
                 download = response.headers.get('Location', '')
                 continue
+            if response.status_code in (401, 403) and not renewed:
+                # Sharing metadata can contain an expired preauthenticated URL.
+                # Ask Graph for a new content redirect; never send Graph bearer
+                # credentials to a signed download host.
+                renewed = True
+                fresh = self.request('GET', path + '/content', headers={'Cache-Control': 'no-cache'})
+                if fresh.status_code in (301, 302, 303, 307, 308):
+                    download = fresh.headers.get('Location', '')
+                    continue
+                response = fresh
             checked(response, 'Workbook download')
             if len(response.content) > 25_000_000:
                 raise DriveError('Workbook exceeds the download limit.')

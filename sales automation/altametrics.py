@@ -78,7 +78,6 @@ async def legacy_dashboard_popup(page):
 
 
 async def guard(page):
-    await legacy_dashboard_popup(page)
     text = (await page.locator('body').inner_text()).lower()
     if 'there was a problem in completing your request' in text or 'session timeout' in text:
         raise RuntimeError('Altametrics rejected the session; sign in again in this region')
@@ -96,6 +95,8 @@ async def guard(page):
             if await anchor.count() == 1 and await anchor.get_attribute('aria-checked') == 'true':
                 continue
             raise RuntimeError('Altametrics requires interactive verification')
+    # Check visible security state before handling any dashboard overlay.
+    await legacy_dashboard_popup(page)
 
 
 async def verify_account_region(page, region):
@@ -282,6 +283,12 @@ async def select_store(page, store):
 
 
 async def collect(day, config):
+    days = day if isinstance(day, list) else [day]
+    if not days or len(set(days)) != len(days):
+        raise ValueError('Report dates must be nonempty and unique')
+    for value in days:
+        date.fromisoformat(value)
+    diagnostic_day = days[-1]
     if missing_secrets():
         raise RuntimeError('Missing Altametrics secrets: ' + ', '.join(missing_secrets()))
     from playwright.async_api import async_playwright
@@ -293,7 +300,7 @@ async def collect(day, config):
                 try:
                     page = await page_for(p, region)
                     await verify_account_region(page, region)
-                    rows.extend(await read_region_report(page, region, day, config))
+                    rows.extend(await read_region_days(page, region, days, config))
                 except Exception as exc:
                     detail = str(exc) if type(exc) in (RuntimeError, ValueError) else type(exc).__name__
                     raise AltametricsError(region + ': dedicated browser needs attention: ' + detail) from None
@@ -326,7 +333,7 @@ async def collect(day, config):
                     def set_stage(value):
                         nonlocal stage
                         stage = value
-                    rows = await read_region_report(page, region, day, config, set_stage)
+                    rows = await read_region_days(page, region, days, config, set_stage)
                     if session:
                         local_sessions.save(region, make_session(region, page.url, await context.storage_state()))
                     return rows
@@ -334,7 +341,7 @@ async def collect(day, config):
                     # Private diagnostic image masks inputs, including passwords.
                     # Only control metadata (never field values/page text) is saved.
                     try:
-                        folder = Path(__file__).parent / 'reports' / ('login-check-' + day)
+                        folder = Path(__file__).parent / 'reports' / ('login-check-' + diagnostic_day)
                         folder.mkdir(parents=True, exist_ok=True)
                         await page.screenshot(path=str(folder / (region + '.png')), mask=[page.locator('input')])
                         meta = {'stage': stage, 'host': urlsplit(page.url).hostname,
@@ -372,6 +379,24 @@ async def collect(day, config):
 
 def fetch(day, config):
     return asyncio.run(collect(day, config))
+
+
+def fetch_many(days, config):
+    """Read multiple completed dates using one verified login per region."""
+    return asyncio.run(collect(list(days), config))
+
+
+async def read_region_days(page, region, days, config, set_stage=lambda value: None):
+    records = []
+    for day in days:
+        rows = await read_region_report(page, region, day, config, set_stage)
+        # Preserve verified source values even if a later region/day or OneDrive
+        # fails. No credentials, employee records or session URLs are retained.
+        folder = Path(__file__).parent / 'reports' / 'source-snapshots' / day
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / (region + '.json')).write_text(json.dumps(rows, indent=2), encoding='utf-8')
+        records.extend(rows)
+    return records
 
 
 async def read_region_report(page, region, day, config, set_stage=lambda value: None):

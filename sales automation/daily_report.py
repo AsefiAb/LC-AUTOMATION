@@ -337,6 +337,8 @@ def run(day, config, preview=False):
     output.mkdir(parents=True, exist_ok=True)
     if config.get('labor_source') in ('TCP base wage estimate', 'TCP wage estimate') or config.get('source') == 'TCP':
         (output / 'tcp-labor.json').write_text(json.dumps(labor, indent=2), encoding='utf-8')
+    # Preserve source totals before a workbook conflict or download failure.
+    (output / 'store-totals.json').write_text(json.dumps(rows, indent=2), encoding='utf-8')
     for book in config['workbooks']:
         snapshot = drive.read(book['url'])
         region_rows = [row for row in rows if row['region'] == book['region']]
@@ -372,6 +374,7 @@ def main():
     parser.add_argument('--preflight', action='store_true')
     parser.add_argument('--preview', action='store_true')
     parser.add_argument('--schedule-gate', action='store_true')
+    parser.add_argument('--catch-up-days', type=int, default=0)
     args = parser.parse_args()
     config = json.loads((FOLDER / 'config.json').read_text())
     now = datetime.now(timezone.utc)
@@ -381,6 +384,10 @@ def main():
         print('true' if eligible else 'false')
         return 0
     day = checked_date(args.date or report_date(now, config['timezone']), config)
+    if not 0 <= args.catch_up_days <= 14:
+        raise ReportError('Catch-up window must be between 0 and 14 days.')
+    if args.catch_up_days and (args.preview or args.preflight):
+        raise ReportError('Preview/preflight cannot perform live workbook catch-up.')
     if args.preflight:
         issues = setup_issues(config)
         if os.environ.get('CAAZ_GMAIL_APP_PASS'):
@@ -428,7 +435,22 @@ def main():
                 issues.append('TCP labor request failed; no estimate available.')
         print(json.dumps({'report_date': day, 'ready': not issues, 'issues': issues}, indent=2))
         return 1 if issues else 0
+    catch_up_problem = None
+    if args.catch_up_days:
+        from repair_workbooks import repair
+        target = date.fromisoformat(day)
+        try:
+            repair((target - timedelta(days=args.catch_up_days)).isoformat(),
+                   (target - timedelta(days=1)).isoformat(), config, gaps_only=True)
+        except Exception as exc:
+            # Today's delivery remains independent from older source outages.
+            # The overall run still fails, preserving a visible recovery alert.
+            catch_up_problem = str(exc) if isinstance(exc, (DriveError, WorkbookError,
+                altametrics.AltametricsError, ValueError)) else type(exc).__name__
+            print('Earlier workbook gaps remain unresolved: ' + catch_up_problem, flush=True)
     run(day, config, args.preview)
+    if catch_up_problem:
+        raise ReportError('Current report completed, but earlier workbook gaps need attention: ' + catch_up_problem)
     return 0
 
 
