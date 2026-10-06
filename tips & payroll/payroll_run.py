@@ -330,6 +330,23 @@ def prepare(gateway_data, payroll, output):
     return messages, data['summary']
 
 
+def roster_setup(dates):
+    """Reject old period controls without blocking non-import review reports."""
+    try:
+        settings = json.loads(os.environ.get('ADP_ROSTER_SETTINGS') or '{}')
+    except (ValueError, TypeError):
+        return {}, ['ADP roster settings are invalid; obtain current-period ADP exports.']
+    if not isinstance(settings, dict):
+        return {}, ['ADP roster settings are invalid; obtain current-period ADP exports.']
+    issues = []
+    if settings.get('period') != dates:
+        issues.append('Current-period ADP roster exports/settings are required; older payroll controls cannot be reused.')
+    for region in ('CO', 'AZ', 'TX'):
+        if not os.environ.get('ADP_' + region + '_TEMPLATE'):
+            issues.append('Missing current ADP export: ' + region)
+    return settings, issues
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--start')
@@ -353,28 +370,40 @@ def main():
         if all((ledger.read() or {}).get('status') == 'sent' for ledger in ledgers.values()):
             print('Regional emails were already sent; delivery alone does not establish payroll completeness. No resend.')
             return 2
-    missing = gateway.missing_secrets() + [key for key in ('TCP_CLIENT_ID', 'TCP_CLIENT_SECRET', 'TCP_API_KEY', 'CAAZ_GMAIL_APP_PASS') if not os.environ.get(key)]
-    if missing and args.mode != 'preflight':
-        raise ValueError('Missing secrets: ' + ', '.join(missing))
-    payroll = None
+    required_tcp = ('TCP_CLIENT_ID', 'TCP_CLIENT_SECRET', 'TCP_API_KEY')
+    missing = gateway.missing_secrets() + [key for key in required_tcp if not os.environ.get(key)]
+    if args.mode == 'deliver' and not os.environ.get('CAAZ_GMAIL_APP_PASS'):
+        missing.append('CAAZ_GMAIL_APP_PASS')
+    payroll, report = None, None
+    collection_issues = []
     if all(os.environ.get(key) for key in ('TCP_CLIENT_ID', 'TCP_CLIENT_SECRET', 'TCP_API_KEY')):
-        report = fetch_tcp(dates)
-        (output / 'tcp-audit.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
-        if args.tcp_export:
-            from tcp_report_fallback import apply_export
-            for native_xml in args.tcp_export:
-                report = apply_export(report, native_xml)
-            (output / 'tcp-reconciled-audit.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
-        payroll = normalize(report)
-        (output / 'payroll-input.json').write_text(json.dumps(payroll, indent=2), encoding='utf-8')
-        write_issues(report, payroll, output)
+        from tcp_inspect import InspectionError
+        try:
+            report = fetch_tcp(dates)
+            (output / 'tcp-audit.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
+            if args.tcp_export:
+                from tcp_report_fallback import apply_export
+                for native_xml in args.tcp_export:
+                    report = apply_export(report, native_xml)
+                (output / 'tcp-reconciled-audit.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
+            payroll = normalize(report)
+            (output / 'payroll-input.json').write_text(json.dumps(payroll, indent=2), encoding='utf-8')
+            write_issues(report, payroll, output)
+        except InspectionError:
+            collection_issues.append('TCP collection failed; no complete calculated-hour source is available. Inspect API access and rerun.')
+        except (ValueError, KeyError, TypeError):
+            collection_issues.append('TCP source validation failed. Review the private TCP audit/native export; hours must not be inferred.')
     tips = None
     if not gateway.missing_secrets():
-        tips = gateway.fetch(dates)
-        (output / 'gateway-input.json').write_text(json.dumps(tips, indent=2), encoding='utf-8')
-    issues = ['Missing secret: ' + key for key in missing] + (payroll['issues'] if payroll else ['TCP was not checked'])
+        try:
+            tips = gateway.fetch(dates)
+            (output / 'gateway-input.json').write_text(json.dumps(tips, indent=2), encoding='utf-8')
+        except gateway.GatewayError:
+            collection_issues.append('Gateway tips collection failed; no complete store tip pools are available. Check Gateway access and rerun.')
+    settings, roster_issues = roster_setup(dates)
+    issues = (['Missing secret: ' + key for key in missing] + collection_issues + roster_issues
+              + (payroll['issues'] if payroll else ['TCP hours are unavailable']))
     from source_reconciliation import reconcile
-    settings = json.loads(os.environ.get('ADP_ROSTER_SETTINGS') or '{}')
     comparison = reconcile(payroll, STORES, settings.get('source_reconciliation')) if payroll else None
     source_ready = comparison is not None and comparison['ready']
     status = {'period': dates, 'ready': not issues and source_ready, 'issues': issues,
@@ -384,10 +413,17 @@ def main():
     (output / 'readiness.json').write_text(json.dumps(status, indent=2), encoding='utf-8')
     print(json.dumps({k: v for k, v in status.items() if k not in ('issues', 'source_reconciliation')}))
     print(f'Source reconciliation ready: {source_ready}. See private readiness.json for details.')
-    if issues:
-        return 1
     if args.mode == 'preflight':
         return 0 if status['ready'] else 2
+    if issues:
+        from review_package import prepare_review, send_review
+        messages = prepare_review(dates, output / 'REVIEW ONLY', issues, payroll, report, tips, comparison)
+        print('Prepared three regional payroll review packages. No ADP CSV; payroll remains incomplete.')
+        if args.mode == 'deliver' and os.environ.get('CAAZ_GMAIL_APP_PASS'):
+            results = send_review(messages, dates['end_date'])
+            (output / 'review-delivery-results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
+            print('Regional review email receipts saved; this is not completed payroll.')
+        return 2
     messages, summary = prepare(tips, payroll, output)
     print(f'Prepared 18 store workbooks and three native ADP regional imports for {len(summary["employees"])} TCP people')
     if ledgers:

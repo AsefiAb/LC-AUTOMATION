@@ -8,6 +8,9 @@ on:
     # Off-the-hour retries if GitHub delays/drops a trigger or a source fails.
     - cron: '20 8,9,11 * * 2'
       timezone: America/Los_Angeles
+    # Independent UTC catch-up triggers. The Pacific gate rejects pre-08:00
+    # and off-week runs; review and payroll receipts prevent duplicate emails.
+    - cron: '7,37 15,16,17,18 * * 2'
   workflow_dispatch:
     inputs:
       start_date:
@@ -28,7 +31,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   payroll:
-    if: github.event.repository.private == true
+    if: github.event.repository.private == true && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -39,8 +42,6 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r 'tips & payroll/requirements.txt'
-      - run: python -m playwright install --with-deps chromium
-      - run: python -m unittest discover -s 'tips & payroll' -p 'test_*.py' -q
       - name: Check Pacific payroll schedule
         id: gate
         env:
@@ -52,6 +53,10 @@ jobs:
           else
             echo "run=$(python 'tips & payroll/payroll_run.py' --schedule-gate)" >> "$GITHUB_OUTPUT"
           fi
+      - run: python -m playwright install --with-deps chromium
+        if: steps.gate.outputs.run == 'true'
+      - run: python -m unittest discover -s 'tips & payroll' -p 'test_*.py' -q
+        if: steps.gate.outputs.run == 'true'
       - name: Read, reconcile, and prepare payroll
         if: steps.gate.outputs.run == 'true'
         env:
@@ -87,7 +92,7 @@ jobs:
         if: failure() && steps.gate.outputs.run == 'true'
         shell: bash
         run: |
-          echo 'Payroll reconciliation did not complete. Reports may have been emailed with an INCOMPLETE PAYROLL warning; check delivery receipts before retrying. Inspect private readiness, source-reconciliation, and regional issues reports. Email delivery is not payroll approval.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Payroll reconciliation did not complete. Review-only Excel reports or incomplete payroll reports may have been emailed; check delivery receipts before retrying. REVIEW ONLY packages contain no ADP import CSV. Inspect private readiness, review-delivery-results, source-reconciliation, and regional issues reports. Email delivery is not payroll approval.' >> "$GITHUB_STEP_SUMMARY"
           echo 'If TCP returned closed shifts with zero calculated hours, reconcile a matching Complete Payroll OpenXML export using the payroll runbook. Never replace missing hours with zero or estimate overtime.' >> "$GITHUB_STEP_SUMMARY"
       - name: Keep private payroll reports briefly
         if: always() && steps.gate.outputs.run == 'true'

@@ -62,6 +62,13 @@ def summarize(report):
             leave = bool(segment.get("isLeave") or job.get("leaveCode"))
             category = "Open punch" if open_punch else ("Leave" if leave else "Worked")
             vals = [minutes(segment.get("hours", {}).get(key)) for key in ("regular", "overtime1", "overtime2")]
+            # TCP also returns monetary tipping markers in the hours endpoint.
+            # A known Tipping code with equal punches and zero calculated time
+            # is not worked time or an employee title. Keep the segment/ID in
+            # the audit, but never add its money to the Gateway tip pool.
+            if (category == "Worked" and role.casefold() == "tipping" and not sum(vals)
+                    and segment.get("timeIn") == segment.get("timeOut")):
+                category = "Non-work adjustment"
             if category == "Worked" and not sum(vals) and segment["timeOut"] > segment["timeIn"]:
                 category = "Zero-hour shift"
             segments.append({"segment_id": sid, "employee_id": eid, "name": people[eid], "store": store,
@@ -75,7 +82,7 @@ def summarize(report):
     keys = sorted(set(by_person) | set(open_counts))
     rows = []
     for store, eid in keys:
-        roles = sorted({s["role"] for s in segments if s["store"] == store and s["employee_id"] == eid and s["category"] != "Leave"})
+        roles = sorted({s["role"] for s in segments if s["store"] == store and s["employee_id"] == eid and s["category"] not in ("Leave", "Non-work adjustment")})
         vals = by_person[(store, eid)]
         rows.append({"store": store, "employee_id": eid, "name": people[eid], "roles": "; ".join(roles),
                      "regular_minutes": vals[0], "ot1_minutes": vals[1], "ot2_minutes": vals[2], "open_punches": open_counts[(store, eid)]})

@@ -1,5 +1,31 @@
 # Payroll reporting without ADP
 
+## Current behavior (October 6, 2026)
+
+The scheduled job requests an 08:00 Pacific start on alternate Tuesdays. GitHub
+can delay scheduled jobs, so UTC catch-up triggers also run at 07 and 37 minutes
+past 15:00–18:00 UTC. The Pacific date/hour gate rejects the wrong week and any
+attempt before 08:00. An exact email arrival time is not guaranteed.
+
+Missing TCP calculations, failed Gateway access, or old/missing ADP roster exports
+now produce three regional **INCOMPLETE PAYROLL REVIEW** emails when delivery is
+enabled, with regional and per-store review Excel attachments. Unknown amounts
+remain blank; no employee tip shares are calculated when TCP hours are incomplete.
+These packages contain **no ADP CSV** and must not be imported or treated as final
+payroll. Issues are included in the workbooks. The workflow remains failed with
+exit code 2 until reconciliation is complete; successful email transport alone
+does not make payroll correct.
+
+Review emails have separate per-region/per-period receipts. Retries do not repeat
+the same review email, and a review receipt does not prevent a later corrected
+payroll package. Check `review-delivery-results.json` and `REVIEW ONLY/` in the
+private artifact. Preflight remains read-only and sends nothing. Preview generates
+the same review files without sending. Current ADP exports are still required
+each period before native import CSVs can be produced.
+
+The historical implementation notes below describe earlier behavior. This section
+supersedes the earlier silent delivery holds for incomplete input.
+
 GitHub Actions **Biweekly payroll reports** connects Gateway Financial View tips
 and TCP calculated hours. The pipeline writes 18 store workbooks and three
 separate regional totals workbooks, each containing one worksheet. Alicia gets

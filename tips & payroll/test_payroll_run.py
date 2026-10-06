@@ -145,6 +145,30 @@ class PayrollPipelineTests(unittest.TestCase):
         self.assertEqual(len(result['roster']), 1)
         self.assertEqual(result['employees'][0]['store'], '3356-01')
 
+    def test_zero_duration_tipping_marker_does_not_replace_default_role(self):
+        from summarize_inspection import summarize
+        report = self.fixture()
+        report['datasets']['jobcodes']['records'].append({'jobCodeId': 1002, 'description': 'Tipping'})
+        segment = dict(recordId=9, timeIn='2026-08-25T09:00:00', timeOut='2026-08-25T09:00:00',
+                       jobCode={'jobCodeId': 1002}, hours=dict(regular='0:00', overtime1='0:00', overtime2='0:00'))
+        report['datasets']['hours']['records'] = [dict(employee={'employeeId': 101}, segments=[segment])]
+        report['datasets']['worksegments']['records'] = [dict(id=9, employeeId=101, jobCodeId=1002,
+            timeIn=segment['timeIn'], timeOut=segment['timeOut'], tracked1='10.00')]
+        with patch.object(p, 'STORES', ['3356-01']):
+            result = p.normalize(report)
+        self.assertEqual(result['roster'][0]['roles'], ['crew leader'])
+        self.assertEqual(result['employees'][0]['total_hours'], '0.00')
+        summary = summarize(report)
+        self.assertEqual(summary['segments'][0]['category'], 'Non-work adjustment')
+        self.assertFalse(summary['checks']['hours_only_ids'])
+        self.assertFalse(summary['checks']['work_only_ids'])
+        # Positive-duration or nonzero-hour tipping records are not silently
+        # ignored: they remain a worked-role/source inconsistency.
+        segment['timeOut'] = '2026-08-25T09:01:00'
+        with patch.object(p, 'STORES', ['3356-01']):
+            result = p.normalize(report)
+        self.assertTrue(any('Unclassified role: Tipping' in issue for issue in result['issues']))
+
     def test_hundredths_are_decimal_not_minutes(self):
         self.assertEqual(p.hour_text('1328'), '22.13')
         self.assertEqual(p.hour_text('462'), '7.70')
