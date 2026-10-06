@@ -10,7 +10,12 @@ attempt before 08:00. An exact email arrival time is not guaranteed.
 Missing TCP calculations, failed Gateway access, or old/missing ADP roster exports
 now produce three regional **INCOMPLETE PAYROLL REVIEW** emails when delivery is
 enabled, with regional and per-store review Excel attachments. Unknown amounts
-remain blank; no employee tip shares are calculated when TCP hours are incomplete.
+remain blank. Store tip pools are allocated using the existing exact-cent formula
+only when that store has complete TCP hours and known eligible roles. A known
+employee punch/role problem holds the tip pool at every store where that person
+worked, because missing time can also change cross-store overtime. Unknown or
+global source failures hold every pool. Held pools are labeled unallocated, never
+zero; clean stores continue to show calculated tips even when ADP exports are old.
 These packages contain **no ADP CSV** and must not be imported or treated as final
 payroll. Issues are included in the workbooks. The workflow remains failed with
 exit code 2 until reconciliation is complete; successful email transport alone
@@ -22,6 +27,16 @@ payroll package. Check `review-delivery-results.json` and `REVIEW ONLY/` in the
 private artifact. Preflight remains read-only and sends nothing. Preview generates
 the same review files without sending. Current ADP exports are still required
 each period before native import CSVs can be produced.
+
+On October 6 the owner confirmed employees clock directly in TCP and authorized
+TCP as the payroll hours source for **September 22–October 5 and future periods**.
+`source_reconciliation.source_policy` records this effective-date rule. Altametrics
+comparisons remain informational for these periods, without merging or replacing
+TCP hours. **September 8–21 and earlier periods retain independent reconciliation**.
+This changes only the hours-source choice: open punches, missing calculated shifts,
+role conflicts, manager exclusion, store-only tip pools, and current ADP identity
+controls remain enforced. Missing ADP exports block import CSVs, not useful Excel
+review reports. `review-readiness.json` records each allocated or held store pool.
 
 Known unresolved job-title conflicts are retained in the private GitHub secret
 `PAYROLL_ROLE_REVIEWS`, with schema

@@ -24,6 +24,10 @@ on:
         type: choice
         default: preflight
         options: [preflight, preview, deliver]
+      review_revision:
+        description: Optional explicit review correction slug (e.g. tcp-hours-v2); blank keeps existing receipts
+        type: string
+        default: ''
 permissions:
   contents: write
 concurrency:
@@ -63,6 +67,7 @@ jobs:
           START_DATE: ${{ inputs.start_date }}
           END_DATE: ${{ inputs.end_date }}
           MODE: ${{ inputs.mode || (vars.PAYROLL_AUTOMATION_ENABLED == 'true' && 'deliver' || 'preflight') }}
+          REVIEW_REVISION: ${{ inputs.review_revision }}
           TCP_CLIENT_ID: ${{ secrets.TCP_CLIENT_ID }}
           TCP_CLIENT_SECRET: ${{ secrets.TCP_CLIENT_SECRET }}
           TCP_API_KEY: ${{ secrets.TCP_API_KEY }}
@@ -88,6 +93,7 @@ jobs:
           args=(--mode "$MODE")
           if [ -n "$START_DATE" ]; then args+=(--start "$START_DATE"); fi
           if [ -n "$END_DATE" ]; then args+=(--end "$END_DATE"); fi
+          if [ -n "$REVIEW_REVISION" ]; then args+=(--review-revision "$REVIEW_REVISION"); fi
           python 'tips & payroll/payroll_run.py' "${args[@]}"
       - name: Explain an incomplete payroll run
         if: failure() && steps.gate.outputs.run == 'true'

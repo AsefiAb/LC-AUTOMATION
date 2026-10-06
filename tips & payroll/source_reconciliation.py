@@ -2,10 +2,26 @@
 import hashlib
 import json
 from collections import defaultdict
+from datetime import date
 
 from allocate_tips import cents, decimal_text
 
 FIELDS = ('regular_hours', 'overtime_hours')
+TCP_AUTHORITATIVE_FROM = date(2026, 9, 22)
+
+
+def source_policy(period):
+    """Owner confirmed on 2026-10-06 that staff clock directly in TCP.
+
+    Applies to Sep 22-Oct 5 and later payrolls, not the disputed Sep 8-21
+    historical payroll. This policy changes only the hours source; it does not
+    clear TCP punch/role errors or ADP identity/import controls.
+    """
+    current = date.fromisoformat(period['start_date']) >= TCP_AUTHORITATIVE_FROM
+    return {'hours_source': 'TCP', 'effective_from': TCP_AUTHORITATIVE_FROM.isoformat(),
+            'independent_hours_comparison_required': not current,
+            'basis': ('Owner confirmed employees clock in TCP; Altametrics is informational'
+                      if current else 'Historical period still requires independent reconciliation')}
 
 
 def hours_fingerprint(payroll):
@@ -17,6 +33,18 @@ def hours_fingerprint(payroll):
 
 
 def reconcile(payroll, stores, evidence=None):
+    stores = list(stores)
+    policy = source_policy(payroll['period'])
+    comparison = compare_altametrics(payroll, stores, evidence)
+    if policy['independent_hours_comparison_required']:
+        return {**comparison, 'source_policy': policy}
+    return {'ready': True, 'period': payroll['period'], 'source_policy': policy,
+            'tcp_hours_sha256': hours_fingerprint(payroll),
+            'stores': {s: {'ready': True, 'issues': []} for s in sorted(stores)},
+            'informational_comparison': comparison}
+
+
+def compare_altametrics(payroll, stores, evidence=None):
     """Evidence is private, period-specific, independently collected, and GEID-mapped.
 
     A coverage declaration is not a substitute for collecting the entire source

@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from openpyxl import load_workbook
 import payroll_run
-from review_package import combine, prepare_review, review_rows, send_review
+from review_package import combine, prepare_review, review_rows, send_review, review_revision
 
 
 class PayrollReviewTests(unittest.TestCase):
@@ -88,6 +88,21 @@ class PayrollReviewTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             review_rows(dates, self.payroll)
 
+    def test_scoped_role_review_keeps_clean_region_tips_and_issues_separate(self):
+        payroll = copy.deepcopy(self.payroll)
+        payroll['issues'] = ['GEID 2: unresolved job-title review.']
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {'GITHUB_ACTIONS': 'true'}):
+            messages = prepare_review(self.dates, Path(folder), payroll['issues'], payroll, tips=self.tips)
+            audit = json.loads((Path(folder) / 'review-readiness.json').read_text())
+            self.assertFalse(audit['store_allocation']['stores']['3356-01']['allocated'])
+            self.assertTrue(audit['store_allocation']['stores']['3356-02']['allocated'])
+            self.assertTrue(audit['store_allocation']['stores']['3759-01']['allocated'])
+            az = load_workbook(Path(folder) / 'AZ Payroll issues 9.22.26-10.5.26.xlsx')
+            self.assertFalse(any('GEID 2:' in str(row[0]) for row in az.active.values))
+            co = next(m for m in messages if m['Subject'].startswith('CO '))
+            self.assertIn('Unallocated known store tip pools: $14.50', co.get_body().get_content())
+            self.assertFalse(list(Path(folder).glob('EPI*.CSV')))
+
     def test_review_receipts_do_not_use_final_payroll_paths(self):
         import sys
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'sales automation'))
@@ -102,6 +117,69 @@ class PayrollReviewTests(unittest.TestCase):
             self.assertEqual(set(send_review(messages, '2026-10-05')), {'TX', 'AZ', 'CO'})
             self.assertEqual([call.args[0] for call in ledger.call_args_list],
                              ['2026-10-05-TX-review', '2026-10-05-AZ-review', '2026-10-05-CO-review'])
+
+    def test_explicit_revision_sends_once_without_replacing_old_receipts(self):
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'sales automation'))
+        receipts = {f'2026-10-05-{code}-review': {'status': 'sent', 'message_id': 'old-' + code}
+                    for code in ('TX', 'AZ', 'CO')}
+        old = copy.deepcopy(receipts)
+        class Ledger:
+            def __init__(self, key, namespace):
+                self.key = key
+                self.namespace = namespace
+            def read(self):
+                return receipts.get(self.key)
+            def write(self, value):
+                receipts[self.key] = value.copy()
+        revision = 'tcp-hours-v2'
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {
+                'GITHUB_ACTIONS': 'true', 'CAAZ_GMAIL_APP_PASS': 'test-password'}), \
+                patch('daily_report.DeliveryLedger', Ledger), patch('daily_report.smtplib.SMTP_SSL') as smtp:
+            smtp.return_value.__enter__.return_value.send_message.return_value = {}
+            messages = prepare_review(self.dates, Path(folder), ['Review required'], self.payroll,
+                                      tips=self.tips, revision=revision)
+            for msg in messages:
+                self.assertIn('-tcp-hours-v2@caazllc.com>', msg['Message-ID'])
+                self.assertIn('Updated review reports; replace the earlier review attachments for this period.',
+                              msg.get_body().get_content())
+            self.assertEqual(set(send_review(messages, '2026-10-05', revision).values()), {'sent'})
+            self.assertEqual(set(send_review(messages, '2026-10-05', revision).values()), {'already sent'})
+            self.assertEqual(smtp.return_value.__enter__.return_value.send_message.call_count, 3)
+            self.assertEqual({k: receipts[k] for k in old}, old)
+            self.assertEqual(len(receipts), 6)
+            with self.assertRaisesRegex(ValueError, 'does not match'):
+                send_review(messages, '2026-10-05')
+            receipts['2026-10-05-TX-review-tcp-hours-v2']['status'] = 'sending'
+            with self.assertRaisesRegex(ValueError, 'Uncertain'):
+                send_review(messages, '2026-10-05', revision)
+            self.assertEqual(smtp.return_value.__enter__.return_value.send_message.call_count, 3)
+
+    def test_invalid_review_revisions_rejected(self):
+        self.assertEqual(review_revision(''), '')
+        self.assertEqual(review_revision('tcp-hours-v2'), 'tcp-hours-v2')
+        for value in (None, '../receipt', 'Uppercase', 'two words', '-prefix', 'suffix-', 'double--dash', 'a' * 41, 'x\ny'):
+            with self.assertRaises(ValueError):
+                review_revision(value)
+
+    def test_revision_preview_never_delivers(self):
+        env = {k: 'test' for k in ('TCP_CLIENT_ID', 'TCP_CLIENT_SECRET', 'TCP_API_KEY')}
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, env, clear=True), \
+                patch('sys.argv', ['payroll_run', '--mode', 'preview', '--review-revision', 'tcp-hours-v2']), \
+                patch.object(payroll_run, 'FOLDER', Path(folder)), \
+                patch.object(payroll_run, 'period_for', return_value=self.dates), \
+                patch.object(payroll_run, 'fetch_tcp', return_value={}), \
+                patch.object(payroll_run, 'normalize', return_value=self.payroll), \
+                patch.object(payroll_run, 'write_issues'), \
+                patch.object(payroll_run.gateway, 'missing_secrets', return_value=[]), \
+                patch.object(payroll_run.gateway, 'fetch', return_value=self.tips), \
+                patch('review_package.prepare_review', return_value=[]) as prepare, \
+                patch('review_package.send_review') as review_send, \
+                patch.object(payroll_run, 'send_regions') as final_send:
+            self.assertEqual(payroll_run.main(), 2)
+            self.assertEqual(prepare.call_args.kwargs['revision'], 'tcp-hours-v2')
+            review_send.assert_not_called()
+            final_send.assert_not_called()
 
     def test_blocked_pipeline_prepares_and_sends_only_review_reports(self):
         report = dict(period=dict(startDate='2026-09-22', stopDate='2026-10-05'), datasets={})

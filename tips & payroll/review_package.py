@@ -6,6 +6,7 @@ later corrected payroll package is not suppressed.
 """
 import json
 import os
+import re
 from decimal import Decimal
 from email.message import EmailMessage
 from pathlib import Path
@@ -20,7 +21,14 @@ FIELDS = ['GEID', 'Employee', 'Role', 'TCP regular hours returned',
           'TCP overtime hours returned', 'TCP total hours returned', 'Provisional tips', 'Review status']
 
 
-def review_rows(dates, payroll=None, report=None, tips=None):
+def review_revision(value):
+    """Explicit correction keys only; scheduled/default runs keep old receipts."""
+    if not isinstance(value, str) or (value and (len(value) > 40 or not re.fullmatch(r'[a-z0-9]+(?:-[a-z0-9]+)*', value))):
+        raise ValueError('Review revision must be blank or a lowercase letters/digits/hyphens slug, at most 40 characters')
+    return value
+
+
+def review_rows(dates, payroll=None, report=None, tips=None, comparison=None, allocation_audit=None):
     from payroll_run import STORES, hour_text
     rows, people = {}, {}
     if payroll and payroll['period'] != dates:
@@ -83,18 +91,15 @@ def review_rows(dates, payroll=None, report=None, tips=None):
             if (person.get('terminationDate') or '')[:10] and person['terminationDate'][:10] < dates['start_date']:
                 continue
             add(store_label(person.get('location')), eid)
-    allocated = False
-    if payroll and payroll.get('verified') and not payroll.get('issues') and tips and tips.get('verified'):
-        from report_package import report_data
-        # The existing allocator enforces same-period, full-store, role and cent
-        # reconciliation. Do not allocate at all when TCP calculations are bad.
-        complete = report_data(tips, payroll)
-        for item in complete['rows']:
-            rows[item['store'], item['geid']]['tips'] = item['tips']
-        allocated = True
+    from store_readiness import review_allocations
+    allocation = review_allocations(payroll, report, list(rows.values()), tips, STORES, comparison)
+    if allocation_audit is not None:
+        allocation_audit.update(allocation)
+    allocated = any(row['tips'] is not None for row in rows.values())
     for row in rows.values():
-        row['status'] = ('Provisional; independent source/current ADP review required' if allocated
-                         else 'Incomplete TCP hours; tips not allocated')
+        detail = allocation['stores'].get(row['store'], {})
+        row['status'] = ('TCP hours / Gateway tips calculated; ADP import review pending' if detail.get('allocated')
+                         else 'Store tip pool unallocated: ' + '; '.join(detail.get('issues', ['Store unassigned'])))
         if row['store'] not in STORES:
             row['status'] += '; store unassigned'
     return list(rows.values()), allocated
@@ -108,13 +113,15 @@ def combine(rows):
             continue
         target = result[row['geid']]
         target['roles'] = sorted(set(target['roles']) | set(row['roles']))
+        if target['status'] != row['status']:
+            target['status'] = '; '.join(dict.fromkeys([target['status'], row['status']]))
         for field in ('regular_hours', 'overtime_hours', 'total_hours', 'tips'):
             target[field] = (None if target[field] is None or row[field] is None
                              else f'{Decimal(target[field]) + Decimal(row[field]):.2f}')
     return list(result.values())
 
 
-def write_review(path, rows, issues, gateway_total=None, issues_only=False):
+def write_review(path, rows, issues, gateway_total=None, issues_only=False, tip_detail=None):
     if os.environ.get('GITHUB_ACTIONS') != 'true':
         raise ValueError('Review workbook authoring requires the GitHub runner')
     from openpyxl import Workbook
@@ -127,6 +134,14 @@ def write_review(path, rows, issues, gateway_total=None, issues_only=False):
     sheet.append(['Known TCP amounts may exclude missing punches. Blank means unverified, not zero.'])
     if gateway_total is not None:
         sheet.append(['Gateway store tips', float(gateway_total)])
+    if tip_detail:
+        if tip_detail['allocated']:
+            crew_hours = Decimal(tip_detail['eligible_crew_hours'])
+            sheet.append(['Eligible crew hours', float(crew_hours)])
+            sheet.append(['Tips per eligible crew hour', float(Decimal(tip_detail['gateway_tips']) / crew_hours) if crew_hours else 0])
+            sheet.append(['Allocated tips', float(tip_detail['allocated_tips'])])
+        else:
+            sheet.append(['STORE TIP POOL UNALLOCATED — correct the issues before distributing tips.'])
     for issue in issues:
         sheet.append([issue])
     groups = [
@@ -170,13 +185,20 @@ def write_review(path, rows, issues, gateway_total=None, issues_only=False):
             for cell in row:
                 cell.fill = PatternFill('solid', fgColor='E8EDF2')
                 cell.font = Font(name='Arial', bold=True)
+        elif row[0].value == 'Tips per eligible crew hour':
+            row[1].number_format = '0.000000'
+        elif len(row) >= 8 and row[7].value:
+            row[7].alignment = Alignment(wrap_text=True, vertical='top')
+            sheet.row_dimensions[row[0].row].height = max(34, 15 * ((len(str(row[7].value)) // 72) + 1))
     book.save(path)
 
 
-def prepare_review(dates, output, issues, payroll=None, report=None, tips=None, comparison=None):
+def prepare_review(dates, output, issues, payroll=None, report=None, tips=None, comparison=None, revision=''):
     from payroll_run import STORES
+    revision = review_revision(revision)
     output.mkdir(parents=True, exist_ok=True)
-    rows, allocated = review_rows(dates, payroll, report, tips)
+    allocation = {}
+    rows, allocated = review_rows(dates, payroll, report, tips, comparison, allocation)
     label = date_label(dates)
     tip_totals = {p['store']: p['total_tips'] for p in (tips or {}).get('stores', [])}
     comparison = comparison or {}
@@ -190,7 +212,13 @@ def prepare_review(dates, output, issues, payroll=None, report=None, tips=None, 
         except (ValueError, KeyError, TypeError):
             pass
     for prefix, (code, name) in REGIONS.items():
-        notes = list(issues)
+        regional_rows = [p for p in rows if p['store'].startswith(prefix + '-')]
+        regional_ids = {p['geid'] for p in regional_rows}
+        notes = [issue for issue in issues
+                 if not issue.startswith('GEID ') or issue[5:].split(': ', 1)[0] in regional_ids]
+        if corrections:
+            notes = [issue for issue in notes if not issue.startswith((
+                'TCP check requires correction: open_punches', 'TCP check requires correction: zero_hour_closed_shifts'))]
         for correction in corrections:
             if correction['store'].startswith(prefix + '-'):
                 notes.append(f'{correction["store"]}: {correction["name"]} (GEID {correction["employee_id"]}), '
@@ -199,8 +227,11 @@ def prepare_review(dates, output, issues, payroll=None, report=None, tips=None, 
         for store, detail in comparison.get('stores', {}).items():
             if store.startswith(prefix + '-'):
                 notes.extend(store + ': ' + issue for issue in detail['issues'])
+        for store, detail in allocation['stores'].items():
+            if store.startswith(prefix + '-'):
+                notes.extend(store + ': ' + issue for issue in detail['issues'])
         notes = list(dict.fromkeys(notes))
-        regional = combine([p for p in rows if p['store'].startswith(prefix + '-')])
+        regional = combine(regional_rows)
         issues_filename = f'{code} Payroll issues {label}.xlsx'
         write_review(output / issues_filename, [], notes, issues_only=True)
         pointer = [f'Source checks and exact timecards to correct: {issues_filename}', f'Period: {label}']
@@ -210,7 +241,8 @@ def prepare_review(dates, output, issues, payroll=None, report=None, tips=None, 
         for store in STORES:
             if store.startswith(prefix + '-'):
                 filename = f'{store} Payroll REVIEW {label}.xlsx'
-                write_review(output / filename, [p for p in rows if p['store'] == store], pointer, tip_totals.get(store))
+                write_review(output / filename, [p for p in rows if p['store'] == store], pointer, tip_totals.get(store),
+                             tip_detail=allocation['stores'][store])
                 files.append(filename)
         if unmapped:
             filename = f'Unassigned employees REVIEW {label}.xlsx'
@@ -220,13 +252,32 @@ def prepare_review(dates, output, issues, payroll=None, report=None, tips=None, 
         message['From'] = 'ab@caazllc.com'
         message['To'] = 'alicia@lccollc.com'
         message['Subject'] = f'{code} TIPS {label} - INCOMPLETE PAYROLL REVIEW'
-        message['Message-ID'] = f'<payroll-review-{code}-{dates["start_date"]}-{dates["end_date"]}@caazllc.com>'
+        suffix = '-' + revision if revision else ''
+        message['Message-ID'] = f'<payroll-review-{code}-{dates["start_date"]}-{dates["end_date"]}{suffix}@caazllc.com>'
+        if revision:
+            message['X-Payroll-Review-Revision'] = revision
         message['X-ADP-Import-Status'] = 'blocked'
+        totals = {f: sum(Decimal(p[f]) for p in regional_rows if p[f] is not None)
+                  for f in ('regular_hours', 'overtime_hours', 'total_hours', 'tips')}
+        region_stores = [p for s, p in allocation['stores'].items() if s.startswith(prefix + '-')]
+        region_complete = all(p['allocated'] for p in region_stores)
+        unallocated = sum(Decimal(p['gateway_tips']) for p in region_stores
+                          if not p['allocated'] and p['gateway_tips'] is not None)
+        totals_text = (f'Known regular hours: {totals["regular_hours"]:.2f}\n'
+                       f'Known overtime hours: {totals["overtime_hours"]:.2f}\n'
+                       f'Known total hours: {totals["total_hours"]:.2f}\n'
+                       f'{"Total tips" if region_complete else "Allocated tips"}: ${totals["tips"]:.2f}\n')
+        if not region_complete:
+            totals_text += f'Unallocated known store tip pools: ${unallocated:.2f}\n'
         message.set_content(f'Hi Alicia,\n\nAttached are the {name} payroll review reports for {label}.\n\n'
+            + ('Updated review reports; replace the earlier review attachments for this period.\n\n' if revision else '')
+            + totals_text + '\n'
+            +
             'Payroll is incomplete. These Excel files are for review and cannot be imported into ADP. '
             f'See {issues_filename} for source checks and exact timecards to correct. '
             'Blank amounts are unverified, not zero.\n\n'
-            + ('Tip shares are provisional until source hours are reconciled.\n' if allocated
+            + ('Tips are calculated only for stores with complete TCP hours and verified roles. '
+               'Affected store pools remain unallocated until their issues are corrected.\n' if allocated
                else 'Employee tips have not been allocated because the payroll inputs are incomplete.\n')
             + '\nCorrected payroll reports must be generated after the issues are resolved.\n')
         for filename in files:
@@ -235,16 +286,23 @@ def prepare_review(dates, output, issues, payroll=None, report=None, tips=None, 
         (output / (message['Subject'] + '.eml')).write_bytes(message.as_bytes())
         messages.append(message)
     audit = {'period': dates, 'ready': False, 'reports_deliverable': False, 'review_reports_deliverable': True,
-             'issues': issues, 'tip_allocation_provisional': allocated, 'source_reconciliation': comparison}
+             'issues': issues, 'tip_allocation_provisional': allocated, 'source_reconciliation': comparison,
+             'store_allocation': allocation, 'review_revision': revision}
+    (output / 'review-payroll-rows.json').write_text(json.dumps(rows, indent=2), encoding='utf-8')
     (output / 'review-readiness.json').write_text(json.dumps(audit, indent=2), encoding='utf-8')
     return messages
 
 
-def send_review(messages, end_date):
+def send_review(messages, end_date, revision=''):
     from daily_report import DeliveryLedger, deliver
+    revision = review_revision(revision)
+    for message in messages:
+        if message.get('X-Payroll-Review-Revision', '') != revision:
+            raise ValueError('Review message revision does not match its delivery receipt')
     results = {}
     # A blocked review receipt cannot suppress a later corrected payroll email.
-    ledgers = {code: DeliveryLedger(end_date + '-' + code + '-review', namespace='payroll')
+    suffix = '-' + revision if revision else ''
+    ledgers = {code: DeliveryLedger(end_date + '-' + code + '-review' + suffix, namespace='payroll')
                for code, _ in REGIONS.values()}
     for ledger in ledgers.values():
         previous = ledger.read()

@@ -33,6 +33,17 @@ class SourceReconciliationTests(unittest.TestCase):
         self.assertTrue(reconcile(self.payroll, self.stores, self.evidence)['ready'])
         self.assertEqual(self.payroll, before)
 
+    def test_current_and_future_tcp_hours_are_authoritative(self):
+        for dates in [('2026-09-22', '2026-10-05'), ('2026-10-06', '2026-10-19')]:
+            self.payroll['period'] = dict(start_date=dates[0], end_date=dates[1])
+            before = copy.deepcopy(self.payroll)
+            audit = reconcile(self.payroll, self.stores, self.evidence)
+            self.assertTrue(audit['ready'])
+            self.assertFalse(audit['source_policy']['independent_hours_comparison_required'])
+            self.assertFalse(audit['informational_comparison']['ready'])
+            self.assertTrue(all(not p['issues'] for p in audit['stores'].values()))
+            self.assertEqual(self.payroll, before)
+
     def test_altametrics_only_hours_are_not_ignored(self):
         self.evidence['records'][2]['regular_hours'] = '24.63'
         audit = reconcile(self.payroll, self.stores, self.evidence)

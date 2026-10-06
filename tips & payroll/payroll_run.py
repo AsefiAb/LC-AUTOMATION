@@ -349,10 +349,13 @@ def roster_setup(dates):
 
 
 def main():
+    from review_package import review_revision
     parser = argparse.ArgumentParser()
     parser.add_argument('--start')
     parser.add_argument('--end')
     parser.add_argument('--mode', choices=['preflight', 'preview', 'deliver'], default='preflight')
+    parser.add_argument('--review-revision', type=review_revision, default='',
+                        help='Explicit correction slug for review emails; blank retains the original review receipt')
     parser.add_argument('--schedule-gate', action='store_true')
     parser.add_argument('--tcp-export', type=Path, action='append', default=[],
                         help='Native Complete Payroll XML to reconcile zero API hours; repeat for separate dates')
@@ -424,13 +427,16 @@ def main():
         return 0 if status['ready'] else 2
     if issues:
         from review_package import prepare_review, send_review
-        messages = prepare_review(dates, output / 'REVIEW ONLY', issues, payroll, report, tips, comparison)
+        messages = prepare_review(dates, output / 'REVIEW ONLY', issues, payroll, report, tips, comparison,
+                                  revision=args.review_revision)
         print('Prepared three regional payroll review packages. No ADP CSV; payroll remains incomplete.')
         if args.mode == 'deliver' and os.environ.get('CAAZ_GMAIL_APP_PASS'):
-            results = send_review(messages, dates['end_date'])
+            results = send_review(messages, dates['end_date'], revision=args.review_revision)
             (output / 'review-delivery-results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
             print('Regional review email receipts saved; this is not completed payroll.')
         return 2
+    if args.review_revision:
+        raise ValueError('Review revisions apply only to incomplete review packages; they cannot resend final payroll')
     messages, summary = prepare(tips, payroll, output)
     print(f'Prepared 18 store workbooks and three native ADP regional imports for {len(summary["employees"])} TCP people')
     if ledgers:
