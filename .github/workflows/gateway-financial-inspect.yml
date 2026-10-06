@@ -1,0 +1,52 @@
+name: Inspect one Gateway Financial View
+on:
+  workflow_dispatch:
+    inputs:
+      store:
+        description: Exact store (for example 3356-03)
+        type: string
+        required: true
+      start_date:
+        description: Inclusive start YYYY-MM-DD
+        type: string
+        required: true
+      end_date:
+        description: Inclusive end YYYY-MM-DD (same as start for one day)
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: gateway-financial-inspect
+  cancel-in-progress: false
+jobs:
+  inspect:
+    if: github.event.repository.private == true && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r 'tips & payroll/requirements.txt'
+      - run: python -m playwright install --with-deps chromium
+      - run: python -m unittest discover -s 'tips & payroll' -p 'test_gateway*.py' -q
+      - name: Capture one Financial View without changing business data
+        env:
+          STORE: ${{ inputs.store }}
+          START_DATE: ${{ inputs.start_date }}
+          END_DATE: ${{ inputs.end_date }}
+          CO_GATEWAY_USER: ${{ secrets.CO_GATEWAY_USER }}
+          CO_GATEWAY_PASS: ${{ secrets.CO_GATEWAY_PASS }}
+        run: python 'tips & payroll/gateway_financial_inspect.py' --store "$STORE" --start "$START_DATE" --end "$END_DATE"
+      - name: Retain private source evidence briefly
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gateway-financial-${{ github.run_id }}
+          path: tips & payroll/reports/gateway-financial-inspect/
+          retention-days: 2
+          if-no-files-found: ignore

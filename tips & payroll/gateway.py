@@ -9,7 +9,7 @@ import re
 import json
 from pathlib import Path
 from urllib.parse import urlsplit
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 REGIONS = {'CO': ('3356', 7), 'AZ': ('3759', 7), 'TX': ('3910', 4)}
@@ -49,9 +49,44 @@ async def retry_region(region, run, attempts=2):
             await asyncio.sleep(5)
 
 
-def missing_secrets():
-    return [f'{region}_GATEWAY_{suffix}' for region in REGIONS for suffix in ('USER', 'PASS')
+def missing_secrets(regions=None):
+    return [f'{region}_GATEWAY_{suffix}' for region in (REGIONS if regions is None else regions) for suffix in ('USER', 'PASS')
             if not os.environ.get(f'{region}_GATEWAY_{suffix}')]
+
+
+def selected_stores(stores=None):
+    available = {f'{franchise}-{i:02d}': (region, i)
+                 for region, (franchise, count) in REGIONS.items() for i in range(1, count + 1)}
+    if stores is None:
+        stores = list(available)
+    if (not isinstance(stores, (list, tuple)) or not stores or len(set(stores)) != len(stores)
+            or any(s not in available for s in stores)):
+        raise ValueError('Gateway store filter must contain unique configured stores such as 3356-03')
+    return {region: [available[s][1] for s in stores if available[s][0] == region]
+            for region in REGIONS if any(available[s][0] == region for s in stores)}
+
+
+def financial_evidence(store, dates, parameters, tables, visible_text):
+    """Rendered report proof, not merely selected controls; no sales inference."""
+    lines = [line.strip() for line in visible_text.splitlines()
+             if not line.strip().lower().startswith('retrieved:')]
+    report_text = '\n'.join(lines)
+    franchises = {franchise for franchise, _ in REGIONS.values()}
+    rendered_stores = sorted({f'{int(franchise)}-{int(number):02d}'
+        for franchise, number in re.findall(r'(?<!\d)(\d{4,5})-(\d{2,5})(?!\d)', report_text)
+        if str(int(franchise)) in franchises})
+    rendered_dates = sorted(set(re.findall(r'\b\d{4}-\d{2}-\d{2}\b', report_text)))
+    first, last = dates['start_date'], dates['end_date']
+    checks = {'rendered_store_matches': rendered_stores == [store],
+              'rendered_dates_match': bool(rendered_dates) and first in rendered_dates and last in rendered_dates
+                                      and all(first <= d <= last for d in rendered_dates),
+              'start_control_matches': parameters['start'] == date.fromisoformat(first).strftime('%m/%d/%Y'),
+              'end_control_matches': parameters['end'] == date.fromisoformat(last).strftime('%m/%d/%Y'),
+              'store_control_matches': set(re.findall(r'\b\d{5}\b', parameters['store'])) == {store.split('-')[1].zfill(5)}}
+    return {'store': store, 'period': dates, 'captured_at': datetime.now(timezone.utc).isoformat(),
+            'report': 'Gateway Financial View', 'source_verified': all(checks.values()), 'checks': checks,
+            'parameters': parameters, 'rendered_store_ids': rendered_stores, 'rendered_dates': rendered_dates,
+            'visible_text': visible_text, 'tables': tables}
 
 
 def parse_tip_rows(tables):
@@ -76,9 +111,11 @@ def parse_tip_rows(tables):
             'total_tips': f'{sum(found.values()):.2f}'}
 
 
-async def collect(dates):
-    if missing_secrets():
-        raise RuntimeError('Missing Gateway secrets: ' + ', '.join(missing_secrets()))
+async def collect(dates, *, stores=None, capture_financial=False, diagnostic_folder=None):
+    selection = selected_stores(stores)
+    missing = missing_secrets(selection)
+    if missing:
+        raise RuntimeError('Missing Gateway secrets: ' + ', '.join(missing))
     from playwright.async_api import async_playwright
     start = date.fromisoformat(dates['start_date']).strftime('%m/%d/%Y')
     stop = date.fromisoformat(dates['end_date']).strftime('%m/%d/%Y')
@@ -122,7 +159,7 @@ async def collect(dates):
                     except Exception:
                         pass
                     result = []
-                    for index in range(1, count + 1):
+                    for index in selection[region]:
                         stage = 'date parameters'
                         if not await frame.locator('#datePicker-input4').is_visible():
                             await frame.locator('[title*="Parameters"], button:has-text("Parameters")').first.click()
@@ -153,21 +190,54 @@ async def collect(dates):
                             raise RuntimeError('Gateway selection is not exactly one requested store')
                         stage = 'report refresh'
                         old_report = await frame.locator('table').evaluate_all('tables => tables.filter(t => t.innerText.includes("InStore Tips (+)")).map(t => t.innerText).join("\\n")')
+                        if capture_financial:
+                            old_report = await frame.locator('table').evaluate_all('tables => tables.filter(t => t.innerText.includes("Financial View")).map(t => t.innerText).join("\\n")')
                         await frame.locator('button:has-text("View Report"), button:has-text("View report"), input[value="View Report"]').first.click()
                         try:
                             await frame.get_by_text('Loading report', exact=False).wait_for(state='visible', timeout=5000)
                         except Exception:
                             pass
                         await frame.get_by_text('Loading report', exact=False).wait_for(state='hidden', timeout=60000)
-                        await frame.get_by_text(LABELS[0], exact=True).first.wait_for()
+                        if capture_financial:
+                            await frame.get_by_text(re.compile(r'Sales Entry Form\s*-\s*Financial View', re.I)).first.wait_for()
+                        else:
+                            await frame.get_by_text(LABELS[0], exact=True).first.wait_for()
                         await page.wait_for_timeout(1000)
                         if old_report:
-                            await frame.wait_for_function('old => {const text=[...document.querySelectorAll("table")].filter(t=>t.innerText.includes("InStore Tips (+)")).map(t=>t.innerText).join("\\n"); return text && text!==old}', arg=old_report, timeout=30000)
+                            if capture_financial:
+                                await frame.wait_for_function('old => {const text=[...document.querySelectorAll("table")].filter(t=>t.innerText.includes("Financial View")).map(t=>t.innerText).join("\\n"); return text && text!==old}', arg=old_report, timeout=30000)
+                            else:
+                                await frame.wait_for_function('old => {const text=[...document.querySelectorAll("table")].filter(t=>t.innerText.includes("InStore Tips (+)")).map(t=>t.innerText).join("\\n"); return text && text!==old}', arg=old_report, timeout=30000)
                         if await frame.locator('#datePicker-input4').input_value() != start or await frame.locator('#datePicker-input9').input_value() != stop:
                             raise RuntimeError('Gateway report dates changed during refresh')
                         if set(re.findall(r'\b\d{5}\b', await dropdown.input_value())) != {target}:
                             raise RuntimeError('Gateway store changed during refresh')
                         tables = await frame.locator('table').evaluate_all('tables => tables.map(t => [...t.rows].map(r => [...r.cells].map(c => c.innerText.trim())))')
+                        if capture_financial:
+                            stage = 'financial source capture'
+                            raw_tables = await frame.locator('table').evaluate_all('''tables => tables
+                                .filter(t => t.getClientRects().length && getComputedStyle(t).visibility !== "hidden")
+                                .map(t => ({caption:t.caption?.innerText || "", rows:[...t.rows]
+                                    .filter(r=>r.getClientRects().length).map(r=>({cells:[...r.cells]
+                                    .map(c=>({tag:c.tagName,text:c.innerText,row_span:c.rowSpan,col_span:c.colSpan}))}))}))''')
+                            rendered_text = '\n'.join('\n'.join(c['text'] for c in row['cells'])
+                                for table in raw_tables for row in table['rows'])
+                            parameters = {'start': await frame.locator('#datePicker-input4').input_value(),
+                                          'end': await frame.locator('#datePicker-input9').input_value(),
+                                          'store': await dropdown.input_value()}
+                            evidence = financial_evidence(f'{franchise}-{index:02d}', dates, parameters,
+                                                          raw_tables, rendered_text)
+                            if diagnostic_folder:
+                                diagnostic_folder.mkdir(parents=True, exist_ok=True)
+                                filename = f'{franchise}-{index:02d}-Financial-View'
+                                # Persist text before screenshot attempts, without HTML/auth tokens.
+                                (diagnostic_folder / (filename + '.json')).write_text(json.dumps(evidence, indent=2), encoding='utf-8')
+                                try:
+                                    await frame.locator('body').screenshot(path=str(diagnostic_folder / (filename + '.png')), timeout=10000)
+                                except Exception:
+                                    pass
+                            result.append(evidence)
+                            continue
                         stage = 'tip parsing'
                         result.append({'store': f'{franchise}-{index:02d}', **parse_tip_rows(tables)})
                     return result
@@ -191,7 +261,8 @@ async def collect(dates):
                             retryable = False
                     detail = str(exc) if type(exc) in (RuntimeError, ValueError) else type(exc).__name__
                     message = f'{region}: Gateway {stage} failed: {detail}'
-                    folder = Path(__file__).parent / 'reports' / (dates['start_date'] + '_' + dates['end_date']) / 'gateway-diagnostics'
+                    folder = ((diagnostic_folder / 'errors') if diagnostic_folder else
+                              Path(__file__).parent / 'reports' / (dates['start_date'] + '_' + dates['end_date']) / 'gateway-diagnostics')
                     folder.mkdir(parents=True, exist_ok=True)
                     diagnostic = region + '-attempt-' + str(attempt)
                     metadata = {'region': region, 'stage': stage, 'attempt': attempt,
@@ -223,13 +294,14 @@ async def collect(dates):
                             pass
             groups = await asyncio.gather(*(retry_region(region,
                 lambda attempt, r=region, d=definition: region_report(r, *d, attempt))
-                for region, definition in REGIONS.items()), return_exceptions=True)
+                for region, definition in REGIONS.items() if region in selection), return_exceptions=True)
             failures = [str(g) for g in groups if isinstance(g, GatewayError)]
             if failures:
                 raise GatewayError('; '.join(failures))
             if any(isinstance(g, BaseException) for g in groups):
                 raise GatewayError('Gateway browser session failed')
-            return {'verified': True, 'issues': [], 'period': dates,
+            return {'verified': not capture_financial, 'issues': [], 'period': dates,
+                    **({'purpose': 'Read-only financial source capture; not a payroll input'} if capture_financial else {}),
                     'source': {'system': 'LCE Gateway', 'report': 'Financial View',
                                'reference_repository': REFERENCE_REPOSITORY,
                                'reference_revision': REFERENCE_REVISION,
