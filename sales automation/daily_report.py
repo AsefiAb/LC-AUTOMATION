@@ -494,25 +494,44 @@ def main():
                 issues.append('TCP labor request failed; no estimate available.')
         print(json.dumps({'report_date': day, 'ready': not issues, 'issues': issues}, indent=2))
         return 1 if issues else 0
-    catch_up_problem = None
-    if args.catch_up_days:
+    target = date.fromisoformat(day)
+    window = {'start': (target - timedelta(days=args.catch_up_days)).isoformat(),
+              'end': (target - timedelta(days=1)).isoformat()} if args.catch_up_days else None
+
+    def catch_up():
+        """Fill blank cells across the window; returns a problem description or None."""
+        if not window:
+            return None
         from repair_workbooks import repair
-        target = date.fromisoformat(day)
         try:
-            update_run_status(phase='earlier workbook recovery', recovery={'status': 'running'})
-            repair((target - timedelta(days=args.catch_up_days)).isoformat(),
-                   (target - timedelta(days=1)).isoformat(), config, gaps_only=True)
-            update_run_status(recovery={'status': 'complete'})
+            update_run_status(phase='earlier workbook recovery', recovery={'status': 'running', **window})
+            repair(window['start'], window['end'], config, gaps_only=True)
+            update_run_status(recovery={'status': 'complete', **window})
+            return None
         except Exception as exc:
-            # Today's delivery remains independent from older source outages.
-            # The overall run still fails, preserving a visible recovery alert.
-            catch_up_problem = str(exc) if isinstance(exc, (DriveError, WorkbookError,
+            # Older source outages never block or hide today's result. The overall
+            # run still fails, preserving a visible recovery alert.
+            problem = str(exc) if isinstance(exc, (DriveError, WorkbookError,
                 altametrics.AltametricsError, ValueError)) else type(exc).__name__
-            update_run_status(recovery={'status': 'failed',
-                'start': (target - timedelta(days=args.catch_up_days)).isoformat(),
-                'end': (target - timedelta(days=1)).isoformat(), **safe_failure(exc)})
-            print('Earlier workbook gaps remain unresolved: ' + catch_up_problem, flush=True)
-    run(day, config, args.preview)
+            update_run_status(recovery={'status': 'failed', **window, **safe_failure(exc)})
+            print('Earlier workbook gaps remain unresolved: ' + problem, flush=True)
+            return problem
+
+    if window:
+        # Recorded before the current report, so a portal block that stops run()
+        # leaves a truthful status: catch-up was requested but not attempted.
+        update_run_status(recovery={'status': 'not_attempted', **window})
+    # The current report runs first. A blocked portal then stops after one
+    # login attempt per region instead of repeating it for the catch-up window,
+    # and an already-delivered date still lets later slots recover older gaps.
+    try:
+        run(day, config, args.preview)
+    except altametrics.AltametricsError:
+        raise  # The same portal block would stop the catch-up logins too.
+    except Exception:
+        catch_up()  # Non-portal failures still let older gaps recover now.
+        raise
+    catch_up_problem = catch_up()
     if catch_up_problem:
         raise ReportError('Current report completed, but earlier workbook gaps need attention: ' + catch_up_problem)
     update_run_status(complete=True, phase='complete')

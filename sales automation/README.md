@@ -49,6 +49,107 @@ To recheck settings after a store configuration changes, run GitHub Actions ->
 **Inspect Altametrics labor settings**. Review its private JSON artifact before
 updating `labor_settings.json`; the audit only reads settings and sends no email.
 
+## Status October 12, 2026: scheduled delivery stalled since October 6
+
+Delivery receipts exist through September 29, then only October 2 and October 4.
+Private run artifacts show two different Altametrics blocks on the GitHub runner:
+
+- **October 2–9 (runs #41, #43, #50–#55)**: the regional login showed a reCAPTCHA
+  *Security Check*. The adapter never completes challenges, so those runs stopped.
+- **October 9 20:00 UTC onward (runs #56–#62)**: no challenge. The SSO host
+  showed a full-page *Scheduled Maintenance* announcement (October 14–15) with
+  one submit control, and the adapter only acknowledged the one supplier notice
+  it knew by text. Every login then timed out as `login redirect did not finish`.
+
+`altametrics.py` now acknowledges a full-page SSO announcement only on
+`apssopgs.altametrics.com`, only through its single `Submitbutton`, and only
+when the page has no password or other entry field, contains one of
+*important message, scheduled maintenance, maintenance, announcement, notice,
+reminder*, and none of *password, passcode, one-time, agree, terms, accept,
+consent, policy, privacy, license, conditions, security, verif(y/ication),
+not a robot, captcha*. At most three acknowledgments happen per login attempt.
+Anything else with a submit control is left alone and the run log states why
+(`not acknowledged: page mentions "..."`, `no announcement keyword`, or
+`page has entry fields`), so the next unknown page is diagnosable from the log.
+Agreements, password prompts and CAPTCHAs are still never submitted.
+
+The daily run also reads the current report before the seven-day catch-up. A
+portal block then costs one login attempt per region instead of two; any other
+current-report failure still runs the blank-cell catch-up before the run fails;
+and an already-delivered date still lets later slots recover older gaps. The
+owner notice names the catch-up window whenever it was not completed.
+
+Workbook state as of the October 12 artifact: September 28–October 4 complete;
+October 5 complete except 3356-03 (sales and transactions blank);
+**October 6–11 blank for all 18 stores** (216 cells). Once the fix is on `main`,
+the next scheduled delivery fills those dates automatically through its catch-up,
+provided Altametrics does not challenge the runner again. The catch-up covers
+only the seven dates before the report date, so the whole October 5–11 gap is
+inside the window only for a scheduled success on October 12 or 13; from
+October 14 the window drops one older date per day, and dates outside it produce
+no failure or notice. If no scheduled delivery has succeeded by October 13, run
+`repair-gaps-preview` then `repair-gaps` with report_date `2026-10-05` and
+end_date `2026-10-11`, or use the owner sign-in capture below, which already
+uses that range.
+
+Altametrics has announced an outage October 14, 10:00 PM PT through
+October 15, 4:00 AM PT; the 8:00 AM October 15 run is after it.
+
+## Reviewed source capture (owner sign-in, no stored credentials)
+
+When GitHub-hosted logins are challenged, the owner can sign in once per region
+on their own computer and let the helper read every store for a date range:
+
+```powershell
+python -m pip install -r 'sales automation/requirements.txt' -r 'sales automation/requirements-setup.txt'
+python -m playwright install chromium
+python 'sales automation/review_sales_source.py' --region CO --start 2026-10-05 --end 2026-10-11
+python 'sales automation/review_sales_source.py' --region AZ --start 2026-10-05 --end 2026-10-11
+python 'sales automation/review_sales_source.py' --region TX --start 2026-10-05 --end 2026-10-11
+```
+
+Each command opens a visible browser, waits for the regional dashboard, then
+saves `reports/reviewed-source/<REGION>-<start>_<end>.json` with Product Net and
+Actual Total transactions per store and date. A store/date with no report rows is
+retried once, then recorded as explicitly unavailable, never as zero. Nothing is
+uploaded, and no session or password is saved.
+
+Then combine, validate, encrypt and start a blank-cell-only repair:
+
+```powershell
+python 'sales automation/build_reviewed_source.py' --start 2026-10-05 --end 2026-10-11 --reviewed-by "AB" --upload --dispatch repair-gaps-preview
+```
+
+The builder applies the same validation as the GitHub repair, prints the
+SHA-256 that binds the dispatch to the exact secret bytes, saves the payload to
+`SALES_REPAIR_SOURCE_JSON` through the local Git credential, and starts the
+workflow. Review the private `repair-audit.json`, then rerun the same command
+with `--upload --dispatch repair-gaps` to write only blank cells:
+
+```powershell
+python 'sales automation/build_reviewed_source.py' --start 2026-10-05 --end 2026-10-11 --reviewed-by "AB" --upload --dispatch repair-gaps
+```
+
+`--dispatch` always requires `--upload` so the dispatched digest matches the
+stored secret; re-uploading re-encrypts identical bytes and prints the same
+digest. The payload must fit GitHub's 48 KB secret limit (about three weeks of
+all 18 stores); split longer ranges. Existing values are never overwritten by
+the gaps modes; use `repair` for known incorrect values. Both jobs, hosted and
+local runner, honor the reviewed source in every repair mode.
+
+## Local runner fallback
+
+If Altametrics keeps challenging GitHub-hosted logins, the verified local mode
+from September 23 remains available: register the owner's Windows runner with
+label `lc-sales-interactive`, open the three dedicated signed-in browsers with
+`python 'sales automation/live_browser.py' --open-all`, and set repository
+variable `SALES_RUNNER=local`. The `report-local` job then runs the same modes
+with `ALTAMETRICS_AUTH_MODE=local-live`, reading the open dashboards without
+storing credentials. It runs under the built-in Windows PowerShell 5.1, so
+PowerShell 7 is not required. Remove the variable to return to GitHub-hosted
+runs. Do not set it without a registered runner, or scheduled jobs queue until
+timeout.
+
 ## Verified September 23, 2026
 
 - All 18 stores passed two complete reads through their dedicated local browsers.
@@ -130,6 +231,9 @@ GitHub Actions -> **Daily sales report** -> **Run workflow**:
   or emailing. Both dates use YYYY-MM-DD; blank end date means start date only.
 - `repair`: perform the same source checks, then correct the existing workbook
   input cells. No email is sent, including for dates already delivered.
+- `repair-gaps-preview` and `repair-gaps`: the same, but only blank dated cells
+  are filled; existing values are left untouched and are not treated as
+  conflicts. Both accept the reviewed source secret and digest.
 
 Scheduled deliveries also check the preceding seven report dates for blank
 sales/transaction cells and fill them from fresh Altametrics reports. Existing

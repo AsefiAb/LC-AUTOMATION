@@ -1,5 +1,7 @@
 import copy
+import io
 import json
+from contextlib import redirect_stdout
 import os
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
@@ -77,11 +79,81 @@ class LoginTests(unittest.IsolatedAsyncioTestCase):
         page.locator.side_effect = lambda selector: {'body': body,
             'input#Submitbutton[type="submit"]:visible': notice,
             'input[type="password"]:visible': password,
-            '#FILTER_STORE_GO:visible': dashboard}[selector]
+            '#FILTER_STORE_GO:visible': dashboard,
+            altametrics.ENTRY_FIELDS: Mock(count=AsyncMock(return_value=0))}[selector]
         with patch.object(altametrics, 'guard', AsyncMock()), \
              patch.object(altametrics, 'dismiss_popups', AsyncMock()):
             self.assertEqual(await altametrics.wait_login_state(page), 'dashboard')
         notice.click.assert_awaited_once()
+
+    async def test_scheduled_maintenance_announcement_is_acknowledged_once_per_page(self):
+        # October 2026 SSO announcement: full-page notice with one submit control.
+        page = Mock(url='https://apssopgs.altametrics.com/notice', wait_for_timeout=AsyncMock())
+        body = Mock(inner_text=AsyncMock(return_value='Scheduled Maintenance 10/14/2026 - 10/15/2026 '
+            'Overview Altametrics has planned system maintenance. Users may log into the application once complete.'))
+        notice = Mock(count=AsyncMock(return_value=1))
+        password = Mock(count=AsyncMock(return_value=0))
+        dashboard = Mock(count=AsyncMock(return_value=0))
+
+        async def click():
+            body.inner_text.return_value = 'Sign in'
+            password.count.return_value = 1
+
+        notice.click = AsyncMock(side_effect=click)
+        page.locator.side_effect = lambda selector: {'body': body,
+            'input#Submitbutton[type="submit"]:visible': notice,
+            'input[type="password"]:visible': password,
+            '#FILTER_STORE_GO:visible': dashboard,
+            altametrics.ENTRY_FIELDS: Mock(count=AsyncMock(return_value=0))}[selector]
+        with patch.object(altametrics, 'guard', AsyncMock()):
+            self.assertEqual(await altametrics.wait_login_state(page), 'credentials')
+        notice.click.assert_awaited_once()
+
+    async def test_agreement_or_credential_pages_with_submit_control_are_not_acknowledged(self):
+        for text, passwords in (('Important notice: please accept the updated terms', 0),
+                                ('Privacy Notice. By clicking Submit you acknowledge the updated privacy notice.', 0),
+                                ('License Notice. Please review the updated software license before continuing.', 0),
+                                ('Notice: updated Conditions of Use apply. Click Submit to continue.', 0),
+                                ('Important message: enter the one-time passcode we sent you', 0),
+                                ('Important message regarding your password', 1),
+                                ('Reminder: verify you are human', 0)):
+            with self.subTest(text=text):
+                page = Mock(url='https://apssopgs.altametrics.com/notice', wait_for_timeout=AsyncMock())
+                body = Mock(inner_text=AsyncMock(return_value=text))
+                notice = Mock(count=AsyncMock(return_value=1), click=AsyncMock())
+                password = Mock(count=AsyncMock(return_value=passwords))
+                dashboard = Mock(count=AsyncMock(return_value=0))
+                page.locator.side_effect = lambda selector: {'body': body,
+                    'input#Submitbutton[type="submit"]:visible': notice,
+                    'input[type="password"]:visible': password,
+                    '#FILTER_STORE_GO:visible': dashboard,
+                    altametrics.ENTRY_FIELDS: Mock(count=AsyncMock(return_value=0))}[selector]
+                with patch.object(altametrics, 'guard', AsyncMock()):
+                    if passwords:
+                        self.assertEqual(await altametrics.wait_login_state(page), 'credentials')
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, 'redirect did not finish'):
+                            await altametrics.wait_login_state(page)
+                notice.click.assert_not_awaited()
+        self.assertIsNone(altametrics.announcement_kind('Security Check: please verify you are not a robot'))
+        self.assertEqual(altametrics.announcement_kind('IMPORTANT MESSAGE REGARDING: Crazy Sauce Cups/Lids'), 'important message')
+        self.assertEqual(altametrics.classify_announcement('Account security notice'), (None, 'page mentions "security"'))
+        self.assertEqual(altametrics.classify_announcement('System Upgrade tonight'), (None, 'no announcement keyword'))
+
+    async def test_announcement_with_entry_fields_is_a_form_and_not_acknowledged(self):
+        page = Mock(url='https://apssopgs.altametrics.com/notice', wait_for_timeout=AsyncMock())
+        body = Mock(inner_text=AsyncMock(return_value='Important notice: enter the code from your authenticator'))
+        notice = Mock(count=AsyncMock(return_value=1), click=AsyncMock())
+        page.locator.side_effect = lambda selector: {'body': body,
+            'input#Submitbutton[type="submit"]:visible': notice,
+            'input[type="password"]:visible': Mock(count=AsyncMock(return_value=0)),
+            '#FILTER_STORE_GO:visible': Mock(count=AsyncMock(return_value=0)),
+            altametrics.ENTRY_FIELDS: Mock(count=AsyncMock(return_value=1))}[selector]
+        with patch.object(altametrics, 'guard', AsyncMock()), redirect_stdout(io.StringIO()) as output:
+            with self.assertRaisesRegex(RuntimeError, 'redirect did not finish'):
+                await altametrics.wait_login_state(page)
+        notice.click.assert_not_awaited()
+        self.assertEqual(output.getvalue().count('not acknowledged: page has entry fields'), 1)
 
     async def test_security_prompt_stops_sso_wait(self):
         page = Mock()

@@ -42,17 +42,20 @@ def failure_message(day, status, run_id):
         lines.append('Current daily report: this run did not attempt to send it.')
     else:
         lines.append('Current daily report: delivery is unconfirmed. Check Sent before any manual resend.')
+    try:
+        window = tuple(date.fromisoformat(recovery[key]).isoformat() for key in ('start', 'end'))
+    except (KeyError, TypeError, ValueError):
+        window = None
     if recovery.get('status') == 'failed':
         lines.extend(['', 'Earlier workbook recovery remains incomplete.',
                       'Recovery regions: ' + names(recovery.get('regions', []))])
-        try:
-            first, last = (date.fromisoformat(recovery[key]).isoformat() for key in ('start', 'end'))
-        except (KeyError, TypeError, ValueError):
-            pass
-        else:
-            lines.append('Recovery date range: ' + first + ' through ' + last)
+        if window:
+            lines.append('Recovery date range: ' + window[0] + ' through ' + window[1])
         if recovery.get('cause') in CAUSES:
             lines.append('Recovery issue: ' + recovery['cause'])
+    elif recovery.get('status') in ('not_attempted', 'running') and window:
+        lines.extend(['', 'Earlier workbook recovery for ' + window[0] + ' through ' + window[1]
+                      + ' was not completed because this run stopped first.'])
     if not delivered:
         failed_regions = details.get('regions', [])
         if not failed_regions and status.get('active_region') in REGIONS:

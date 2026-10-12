@@ -13,7 +13,8 @@ class GitHubSecrets:
     """Encrypt locally and upload only to the user's private automation repo."""
     def __init__(self, allowed_names=None):
         self.allowed_names = set(allowed_names or ('MS_CLIENT_ID', 'MS_REFRESH_TOKEN'))
-        permitted = {'MS_CLIENT_ID', 'MS_REFRESH_TOKEN', 'CO_ALTAMETRICS_SESSION', 'AZ_ALTAMETRICS_SESSION', 'TX_ALTAMETRICS_SESSION'}
+        permitted = {'MS_CLIENT_ID', 'MS_REFRESH_TOKEN', 'CO_ALTAMETRICS_SESSION', 'AZ_ALTAMETRICS_SESSION',
+                     'TX_ALTAMETRICS_SESSION', 'SALES_REPAIR_SOURCE_JSON'}
         if not self.allowed_names <= permitted:
             raise RuntimeError('Unsupported connection secret')
         from nacl.public import PublicKey, SealedBox
@@ -43,7 +44,7 @@ class GitHubSecrets:
         response = requests.put(self.url + '/actions/secrets/' + name, headers=self.headers,
             json={'key_id': self.key_id, 'encrypted_value': encrypted}, timeout=30)
         if response.status_code not in (201, 204):
-            raise RuntimeError('GitHub did not confirm saving ' + name)
+            raise RuntimeError('GitHub did not confirm saving ' + name + ' (HTTP ' + str(response.status_code) + ')')
 
 
 def main():

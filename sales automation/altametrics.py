@@ -128,8 +128,40 @@ async def fill_first(page, selectors, value):
     raise RuntimeError('Required Altametrics login field was not found')
 
 
+ANNOUNCEMENT_WORDS = ('important message', 'scheduled maintenance', 'maintenance',
+                      'announcement', 'notice', 'reminder')
+# Pages that ask the account owner to agree, verify or change something are
+# never acknowledged automatically, even when they use the same submit control.
+# A false positive only stalls the login, which is the safe direction.
+NON_ANNOUNCEMENT_WORDS = ('password', 'passcode', 'one-time', 'agree', 'terms', 'accept',
+                          'consent', 'policy', 'privacy', 'license', 'conditions',
+                          'security', 'verif', 'not a robot', 'captcha')
+# Announcements have nothing to type into; any entry field means a form.
+ENTRY_FIELDS = ('input:visible:not([type="submit"]):not([type="button"]):not([type="hidden"])'
+                ':not([type="image"]), textarea:visible')
+
+
+def classify_announcement(body):
+    """Return (kind, reason): the acknowledgeable announcement word, or None and why.
+
+    The reason only ever names a word from the fixed lists, never page text.
+    """
+    text = ' '.join(body.lower().split())
+    blocked = next((word for word in NON_ANNOUNCEMENT_WORDS if word in text), None)
+    if blocked:
+        return None, 'page mentions "' + blocked + '"'
+    kind = next((word for word in ANNOUNCEMENT_WORDS if word in text), None)
+    return kind, None if kind else 'no announcement keyword'
+
+
+def announcement_kind(body):
+    return classify_announcement(body)[0]
+
+
 async def wait_login_state(page):
-    """Let SSO redirects finish and acknowledge the observed supplier notice."""
+    """Let SSO redirects finish and acknowledge full-page vendor announcements."""
+    acknowledged = 0
+    declined = None
     for _ in range(60):
         await guard(page)
         host = urlsplit(page.url).hostname
@@ -138,18 +170,28 @@ async def wait_login_state(page):
         if 'ers_webApp' in page.url and await page.locator('#FILTER_STORE_GO:visible').count() == 1:
             await dismiss_popups(page)
             return 'dashboard'
-        # This full-page inventory announcement is not a login form. Use its
-        # own submit control; never remove overlays or submit security prompts.
-        body = (await page.locator('body').inner_text()).lower()
-        notice = page.locator('input#Submitbutton[type="submit"]:visible')
-        if (host == 'apssopgs.altametrics.com'
-                and 'important message regarding: crazy sauce cups/lids' in body
-                and await notice.count() == 1):
-            await notice.click()
-            await page.wait_for_timeout(2000)
-            continue
-        if await page.locator('input[type="password"]:visible').count() == 1:
+        passwords = await page.locator('input[type="password"]:visible').count()
+        if passwords == 1:
             return 'credentials'
+        # A full-page SSO announcement (supplier notices, scheduled maintenance)
+        # is not a login form: one submit control, nothing to type into, and no
+        # agreement, security or verification wording. Use that control; never
+        # remove overlays or submit security prompts.
+        if host == 'apssopgs.altametrics.com' and not passwords:
+            notice = page.locator('input#Submitbutton[type="submit"]:visible')
+            if await notice.count() == 1:
+                kind, reason = classify_announcement(await page.locator('body').inner_text())
+                if kind and await page.locator(ENTRY_FIELDS).count():
+                    kind, reason = None, 'page has entry fields'
+                if kind and acknowledged < 3:
+                    acknowledged += 1
+                    print('Altametrics announcement acknowledged (' + kind + ')', flush=True)
+                    await notice.click()
+                    await page.wait_for_timeout(2000)
+                    continue
+                if reason and reason != declined:
+                    declined = reason
+                    print('Altametrics SSO page with a submit control was not acknowledged: ' + reason, flush=True)
         # The SSO page explicitly says it refreshes itself. Wait for the form
         # or dashboard instead of trying to type credentials into that page.
         await page.wait_for_timeout(1000)

@@ -166,6 +166,65 @@ class WorkbookRecoveryTests(unittest.TestCase):
                 self.assertEqual(repair.call_args.args[:2], ('2026-09-09', '2026-09-15'))
                 run.assert_called_once_with('2026-09-16', config, False)
 
+    def test_blocked_current_report_stops_before_a_second_catch_up_login(self):
+        config, _ = self.fixture()
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / 'config.json').write_text(json.dumps(config))
+            with patch.object(daily_report, 'FOLDER', Path(folder)), \
+                    patch('sys.argv', ['daily_report.py', '--date', '2026-09-16', '--catch-up-days', '7']), \
+                    patch.object(repair_workbooks, 'repair') as repair, \
+                    patch.object(daily_report, 'run', side_effect=altametrics.AltametricsError(
+                        'CO: login failed: Altametrics requires an interactive login or password update')):
+                with self.assertRaisesRegex(altametrics.AltametricsError, 'login failed'):
+                    daily_report.main()
+                repair.assert_not_called()
+
+    def test_already_delivered_date_still_recovers_older_gaps(self):
+        config, _ = self.fixture()
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / 'config.json').write_text(json.dumps(config))
+            with patch.object(daily_report, 'FOLDER', Path(folder)), \
+                    patch('sys.argv', ['daily_report.py', '--date', '2026-09-16', '--catch-up-days', '7']), \
+                    patch.object(repair_workbooks, 'repair', return_value={'complete': True}) as repair, \
+                    patch.object(daily_report, 'run') as run:
+                self.assertEqual(daily_report.main(), 0)
+                run.assert_called_once_with('2026-09-16', config, False)
+                self.assertEqual(repair.call_args.args[:2], ('2026-09-09', '2026-09-15'))
+                self.assertTrue(repair.call_args.kwargs['gaps_only'])
+
+    def test_non_portal_failure_still_recovers_older_gaps_before_failing(self):
+        config, _ = self.fixture()
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / 'config.json').write_text(json.dumps(config))
+            with patch.object(daily_report, 'FOLDER', Path(folder)), \
+                    patch('sys.argv', ['daily_report.py', '--date', '2026-09-16', '--catch-up-days', '7']), \
+                    patch.object(repair_workbooks, 'repair', return_value={'complete': True}) as repair, \
+                    patch.object(daily_report, 'run', side_effect=daily_report.ReportError(
+                        'A previous delivery is unresolved; inspect its receipt before retrying.')):
+                with self.assertRaisesRegex(daily_report.ReportError, 'previous delivery is unresolved'):
+                    daily_report.main()
+                self.assertEqual(repair.call_args.args[:2], ('2026-09-09', '2026-09-15'))
+            status = json.loads((Path(folder) / 'reports' / 'run-status.json').read_text())
+            self.assertEqual(status['recovery'], {'status': 'complete', 'start': '2026-09-09', 'end': '2026-09-15'})
+
+    def test_owner_notice_names_the_window_when_catch_up_was_never_attempted(self):
+        import notify_failure
+        config, _ = self.fixture()
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / 'config.json').write_text(json.dumps(config))
+            with patch.object(daily_report, 'FOLDER', Path(folder)), \
+                    patch('sys.argv', ['daily_report.py', '--date', '2026-09-16', '--catch-up-days', '7']), \
+                    patch.object(repair_workbooks, 'repair') as repair, \
+                    patch.object(daily_report, 'run', side_effect=altametrics.AltametricsError('CO: login failed: x')):
+                with self.assertRaises(altametrics.AltametricsError):
+                    daily_report.main()
+                repair.assert_not_called()
+            status = json.loads((Path(folder) / 'reports' / 'run-status.json').read_text())
+            self.assertEqual(status['recovery']['status'], 'not_attempted')
+            body = notify_failure.failure_message('2026-09-16', status, '1').get_content()
+            self.assertIn('recovery for 2026-09-09 through 2026-09-15 was not completed', body)
+            self.assertIn('did not attempt to send it', body)
+
     def test_successful_repair_reads_back_each_changed_cell(self):
         config, records = self.fixture()
         original = sample_workbook(sales_value='999')

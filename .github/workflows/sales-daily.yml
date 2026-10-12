@@ -10,7 +10,7 @@ on:
         required: false
         type: string
       mode:
-        description: Check, preview, deliver, or repair dated workbook inputs without email
+        description: Check, preview, deliver, or repair dated workbook inputs without email (repair-gaps fills blank cells only)
         required: true
         default: preflight
         type: choice
@@ -20,6 +20,8 @@ on:
           - deliver
           - repair-preview
           - repair
+          - repair-gaps-preview
+          - repair-gaps
       end_date:
         description: Repair end date inclusive (report_date is start); ignored for other modes
         required: false
@@ -35,7 +37,9 @@ concurrency:
   cancel-in-progress: false
 jobs:
   report:
-    if: github.event.repository.private == true && github.ref == 'refs/heads/main'
+    # GitHub-hosted collection. Switch to the owner's Windows runner by setting
+    # repository variable SALES_RUNNER=local (see README: Local runner fallback).
+    if: github.event.repository.private == true && github.ref == 'refs/heads/main' && vars.SALES_RUNNER != 'local'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -87,9 +91,10 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           args=()
-          if [ -n "$SOURCE_SHA256" ] && [ "$MODE" != repair ] && [ "$MODE" != repair-preview ]; then
-            echo 'Reviewed source is supported only in repair modes.'; exit 1
-          fi
+          case "$MODE" in
+            repair*) ;;
+            *) if [ -n "$SOURCE_SHA256" ]; then echo 'Reviewed source is supported only in repair modes.'; exit 1; fi ;;
+          esac
           if [ -n "$REPORT_DATE" ]; then args+=(--date "$REPORT_DATE"); fi
           case "$MODE" in
             preflight) args+=(--preflight) ;;
@@ -97,10 +102,11 @@ jobs:
             deliver)
               if [ "$EVENT_NAME" = schedule ]; then args+=(--catch-up-days 7); fi
               ;;
-            repair|repair-preview)
+            repair|repair-preview|repair-gaps|repair-gaps-preview)
               if [ -z "$REPORT_DATE" ]; then echo 'Repair requires an explicit report_date start.'; exit 1; fi
               repair_args=(--start "$REPORT_DATE" --end "${END_DATE:-$REPORT_DATE}")
-              if [ "$MODE" = repair-preview ]; then repair_args+=(--preview); fi
+              case "$MODE" in *-preview) repair_args+=(--preview) ;; esac
+              case "$MODE" in repair-gaps*) repair_args+=(--gaps-only) ;; esac
               if [ -n "$SOURCE_SHA256" ]; then
                 python - <<'PY'
           import os
@@ -118,6 +124,111 @@ jobs:
             *) exit 1 ;;
           esac
           python 'sales automation/daily_report.py' "${args[@]}"
+      - name: Notify owner if scheduled reporting is incomplete
+        if: failure() && github.event_name == 'schedule' && vars.SALES_AUTOMATION_ENABLED == 'true'
+        env:
+          CAAZ_GMAIL_APP_PASS: ${{ secrets.CAAZ_GMAIL_APP_PASS }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python 'sales automation/notify_failure.py'
+      - name: Keep private reports briefly
+        if: always() && steps.gate.outputs.run == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: daily-sales-${{ github.run_id }}
+          path: sales automation/reports/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  report-local:
+    # Opt-in fallback when Altametrics challenges GitHub-hosted logins. Requires
+    # the owner's Windows runner (label lc-sales-interactive) with the three
+    # dedicated signed-in sales browsers open: live_browser.py --open-all.
+    # Reads existing dashboards only; no credentials or sessions are stored.
+    if: github.event.repository.private == true && github.ref == 'refs/heads/main' && vars.SALES_RUNNER == 'local'
+    runs-on: [self-hosted, Windows, X64, lc-sales-interactive]
+    timeout-minutes: 45
+    defaults:
+      run:
+        # Built-in Windows PowerShell 5.1; PowerShell 7 is not required on the runner.
+        shell: powershell
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Prepare isolated local Python
+        run: |
+          python -c "import sys; assert sys.version_info[:2] == (3, 12), 'Python 3.12 is required'"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $salesVenv = Join-Path $env:RUNNER_TEMP 'sales-venv'
+          python -m venv $salesVenv
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          (Join-Path $salesVenv 'Scripts') | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - run: python -m pip install -r 'sales automation/requirements.txt'
+      - run: python -m playwright install chromium
+      - name: Verify reporting safeguards
+        run: python -m unittest discover -s 'sales automation' -p 'test_*.py' -v
+      - name: Check local run time
+        id: gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if ($env:EVENT_NAME -eq 'workflow_dispatch') {
+            'run=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          } else {
+            $gate = python 'sales automation/daily_report.py' --schedule-gate
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            "run=$gate" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          }
+      - name: Validate sources, update workbooks, and deliver
+        if: steps.gate.outputs.run == 'true'
+        env:
+          ALTAMETRICS_AUTH_MODE: local-live
+          REPORT_DATE: ${{ inputs.report_date }}
+          END_DATE: ${{ inputs.end_date }}
+          SOURCE_SHA256: ${{ inputs.source_sha256 }}
+          SALES_REPAIR_SOURCE_JSON: ${{ secrets.SALES_REPAIR_SOURCE_JSON }}
+          EVENT_NAME: ${{ github.event_name }}
+          MODE: ${{ inputs.mode || (vars.SALES_AUTOMATION_ENABLED == 'true' && 'deliver' || 'preflight') }}
+          TCP_CLIENT_ID: ${{ secrets.TCP_CLIENT_ID }}
+          TCP_CLIENT_SECRET: ${{ secrets.TCP_CLIENT_SECRET }}
+          TCP_API_KEY: ${{ secrets.TCP_API_KEY }}
+          TCP_COMPANY_ID: ${{ vars.TCP_COMPANY_ID }}
+          MS_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
+          MS_CLIENT_SECRET: ${{ secrets.MS_CLIENT_SECRET }}
+          MS_REFRESH_TOKEN: ${{ secrets.MS_REFRESH_TOKEN }}
+          MS_TENANT_ID: ${{ vars.MS_TENANT_ID || 'common' }}
+          CAAZ_GMAIL_APP_PASS: ${{ secrets.CAAZ_GMAIL_APP_PASS }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $reportArgs = @()
+          if ($env:SOURCE_SHA256 -and $env:MODE -notlike 'repair*') {
+            Write-Error 'Reviewed source is supported only in repair modes.'; exit 1
+          }
+          if ($env:REPORT_DATE) { $reportArgs += @('--date', $env:REPORT_DATE) }
+          switch -Wildcard ($env:MODE) {
+            'preflight' { $reportArgs += '--preflight' }
+            'preview' { $reportArgs += '--preview' }
+            'deliver' { if ($env:EVENT_NAME -eq 'schedule') { $reportArgs += @('--catch-up-days', '7') } }
+            'repair*' {
+              if (-not $env:REPORT_DATE) { Write-Error 'Repair requires an explicit report_date start.'; exit 1 }
+              $end = if ($env:END_DATE) { $env:END_DATE } else { $env:REPORT_DATE }
+              $repairArgs = @('--start', $env:REPORT_DATE, '--end', $end)
+              if ($env:MODE -like '*-preview') { $repairArgs += '--preview' }
+              if ($env:MODE -like 'repair-gaps*') { $repairArgs += '--gaps-only' }
+              if ($env:SOURCE_SHA256) {
+                if (-not $env:SALES_REPAIR_SOURCE_JSON) { Write-Error 'Missing encrypted reviewed source secret.'; exit 1 }
+                # Exact bytes, no BOM or trailing newline, so the digest check matches the secret.
+                $sourcePath = Join-Path $env:RUNNER_TEMP 'sales-reviewed-source.json'
+                [System.IO.File]::WriteAllBytes($sourcePath, [System.Text.Encoding]::UTF8.GetBytes($env:SALES_REPAIR_SOURCE_JSON))
+                $repairArgs += @('--source-records', $sourcePath, '--source-sha256', $env:SOURCE_SHA256)
+              }
+              python 'sales automation/repair_workbooks.py' @repairArgs
+              exit $LASTEXITCODE
+            }
+            default { exit 1 }
+          }
+          python 'sales automation/daily_report.py' @reportArgs
+          exit $LASTEXITCODE
       - name: Notify owner if scheduled reporting is incomplete
         if: failure() && github.event_name == 'schedule' && vars.SALES_AUTOMATION_ENABLED == 'true'
         env:
