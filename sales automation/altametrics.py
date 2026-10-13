@@ -145,7 +145,8 @@ ENTRY_FIELDS = ('input:visible:not([type="submit"]):not([type="button"]):not([ty
 # password is about to expire. Only its own postpone control is used; the
 # account owner changes the password and the GitHub secret.
 PASSWORD_EXPIRY_WORDS = ('password will expire', 'create new password')
-POSTPONE_CONTROLS = 'input[type="button"]:visible, button:visible, a:visible'
+# The October 2026 expiry page offers 'Change Password' (button) and 'Cancel' (submit).
+POSTPONE_CONTROLS = 'input[type="button"]:visible, input[type="submit"]:visible, button:visible, a:visible'
 POSTPONE_LABELS = re.compile(r'(?i)^(skip( for now)?|later|not now|remind me later|maybe later|no thanks|dismiss|close|cancel)$')
 PASSWORD_CHANGE_REQUIRED = ('Altametrics requires a password change for this account; '
                             'change it in the portal and update its GitHub secret')

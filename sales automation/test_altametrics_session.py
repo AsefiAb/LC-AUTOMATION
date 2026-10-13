@@ -175,7 +175,10 @@ class LoginTests(unittest.IsolatedAsyncioTestCase):
         return control
 
     async def test_password_expiry_warning_is_postponed_through_its_own_control_only(self):
-        submit, later = self.control('Submit'), self.control('Remind me later', kind='text')
+        self.assertIn('input[type="submit"]:visible', altametrics.POSTPONE_CONTROLS)  # 'Cancel' is a submit input.
+        self.assertTrue(altametrics.POSTPONE_LABELS.fullmatch('Cancel'))
+        self.assertIsNone(altametrics.POSTPONE_LABELS.fullmatch('Change Password'))
+        submit, later = self.control('Change Password'), self.control('Remind me later', kind='text')
         page, dashboard, passwords = self.expiry_page([submit, later])
 
         async def click():
