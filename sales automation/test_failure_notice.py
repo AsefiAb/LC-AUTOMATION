@@ -76,5 +76,16 @@ class FailureNoticeTests(unittest.TestCase):
             send.assert_not_called()
 
 
+
+class PasswordChangeCauseTests(unittest.TestCase):
+    def test_password_change_is_a_named_owner_cause(self):
+        import daily_report, notify_failure
+        failure = daily_report.safe_failure(daily_report.ReportError(
+            'CO: login failed: Altametrics requires a password change for this account; change it in the portal'))
+        self.assertEqual(failure['cause'], 'Altametrics requires a password change for a regional account.')
+        self.assertEqual(failure['regions'], ['CO'])
+        self.assertIn(failure['cause'], notify_failure.CAUSES)
+
+
 if __name__ == '__main__':
     unittest.main()

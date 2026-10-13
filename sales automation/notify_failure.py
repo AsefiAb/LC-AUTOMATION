@@ -16,6 +16,7 @@ FOLDER = Path(__file__).resolve().parent
 OWNER = 'ab@caazllc.com'
 REGIONS = {'CO': 'Colorado', 'AZ': 'Arizona', 'TX': 'Texas'}
 CAUSES = {
+    'Altametrics requires a password change for a regional account.',
     'Altametrics requested an interactive security check or account sign-in.',
     'OneDrive access, download, upload or file-version verification failed.',
     'Workbook layout, existing figures or uploaded values did not pass validation.',

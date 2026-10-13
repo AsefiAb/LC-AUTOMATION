@@ -46,7 +46,9 @@ def safe_failure(exc):
     """Translate errors without placing source URLs or exception payloads in email."""
     detail = str(exc).lower()
     regions = sorted(set(re.findall(r'(?:^|;\s*)(CO|AZ|TX):', str(exc))))
-    if 'interactive' in detail or 'verification' in detail or 'security check' in detail:
+    if 'password change' in detail:
+        cause = 'Altametrics requires a password change for a regional account.'
+    elif 'interactive' in detail or 'verification' in detail or 'security check' in detail:
         cause = 'Altametrics requested an interactive security check or account sign-in.'
     elif isinstance(exc, DriveError):
         cause = 'OneDrive access, download, upload or file-version verification failed.'

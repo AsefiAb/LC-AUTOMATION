@@ -95,6 +95,18 @@ uses that range.
 Altametrics has announced an outage October 14, 10:00 PM PT through
 October 15, 4:00 AM PT; the 8:00 AM October 15 run is after it.
 
+**Password expiry, October 12 preflight ([run 38324970807](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/38324970807)):**
+with the announcement fix, all three regional logins succeeded and then landed
+on a *Create New Password* page stating "Your password will expire in 5 days".
+The adapter never changes passwords. It now uses that page's own postpone
+control (Skip, Later, Remind me later, Not now, Cancel and similar labels) once
+per login and otherwise stops with `requires a password change`, which the
+owner notice reports as its own cause. The owner must change each regional
+Altametrics password in the portal before it expires (about October 17) and
+then update `COLORADO_PASSWORD`, `AZ_PASSWORD` and `TX_PASSWORD` in GitHub
+Secrets. Until both steps are done, scheduled delivery stays blocked once the
+passwords expire.
+
 ## Reviewed source capture (owner sign-in, no stored credentials)
 
 When GitHub-hosted logins are challenged, the owner can sign in once per region

@@ -155,6 +155,54 @@ class LoginTests(unittest.IsolatedAsyncioTestCase):
         notice.click.assert_not_awaited()
         self.assertEqual(output.getvalue().count('not acknowledged: page has entry fields'), 1)
 
+    def expiry_page(self, controls):
+        page = Mock(url='https://app108b.altametrics.com/ers_webApp/change', wait_for_timeout=AsyncMock())
+        body = Mock(inner_text=AsyncMock(return_value='Create New Password\nYour password will expire in 5 days. Please change your password'))
+        dashboard = Mock(count=AsyncMock(return_value=0))
+        passwords = Mock(count=AsyncMock(return_value=3))
+        located = Mock(count=AsyncMock(return_value=len(controls)))
+        located.nth.side_effect = lambda i: controls[i]
+        page.locator.side_effect = lambda selector: {'body': body,
+            'input[type="password"]:visible': passwords,
+            '#FILTER_STORE_GO:visible': dashboard,
+            altametrics.POSTPONE_CONTROLS: located}[selector]
+        return page, dashboard, passwords
+
+    def control(self, label, kind='value'):
+        control = Mock(click=AsyncMock())
+        control.get_attribute = AsyncMock(return_value=label if kind == 'value' else None)
+        control.inner_text = AsyncMock(return_value=label if kind == 'text' else '')
+        return control
+
+    async def test_password_expiry_warning_is_postponed_through_its_own_control_only(self):
+        submit, later = self.control('Submit'), self.control('Remind me later', kind='text')
+        page, dashboard, passwords = self.expiry_page([submit, later])
+
+        async def click():
+            dashboard.count.return_value = 1
+            passwords.count.return_value = 0
+
+        later.click.side_effect = click
+        with patch.object(altametrics, 'guard', AsyncMock()), patch.object(altametrics, 'dismiss_popups', AsyncMock()), \
+                redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(await altametrics.wait_login_state(page), 'dashboard')
+        submit.click.assert_not_awaited()
+        later.click.assert_awaited_once()
+        self.assertIn('postponed through its "Remind me later" control', output.getvalue())
+
+    async def test_password_change_without_postpone_control_stops_with_clear_reason(self):
+        page, _, _ = self.expiry_page([self.control('Submit')])
+        with patch.object(altametrics, 'guard', AsyncMock()):
+            with self.assertRaisesRegex(RuntimeError, 'requires a password change'):
+                await altametrics.wait_login_state(page)
+        # A page that persists after one postponement is also a required change, not a loop.
+        later = self.control('Later')
+        page, _, _ = self.expiry_page([later])
+        with patch.object(altametrics, 'guard', AsyncMock()), redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(RuntimeError, 'requires a password change'):
+                await altametrics.wait_login_state(page)
+        later.click.assert_awaited_once()
+
     async def test_security_prompt_stops_sso_wait(self):
         page = Mock()
         with patch.object(altametrics, 'guard', AsyncMock(side_effect=RuntimeError('interactive verification'))):

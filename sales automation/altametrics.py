@@ -141,6 +141,31 @@ ENTRY_FIELDS = ('input:visible:not([type="submit"]):not([type="button"]):not([ty
                 ':not([type="image"]), textarea:visible')
 
 
+# Altametrics shows a "Create New Password" form before the dashboard when a
+# password is about to expire. Only its own postpone control is used; the
+# account owner changes the password and the GitHub secret.
+PASSWORD_EXPIRY_WORDS = ('password will expire', 'create new password')
+POSTPONE_CONTROLS = 'input[type="button"]:visible, button:visible, a:visible'
+POSTPONE_LABELS = re.compile(r'(?i)^(skip( for now)?|later|not now|remind me later|maybe later|no thanks|dismiss|close|cancel)$')
+PASSWORD_CHANGE_REQUIRED = ('Altametrics requires a password change for this account; '
+                            'change it in the portal and update its GitHub secret')
+
+
+async def postpone_password_change(page):
+    """Use the expiry notice's own postpone control once; never submit the form."""
+    controls = page.locator(POSTPONE_CONTROLS)
+    for index in range(await controls.count()):
+        control = controls.nth(index)
+        label = ' '.join(((await control.get_attribute('value')) or (await control.inner_text()) or '').split())
+        if POSTPONE_LABELS.fullmatch(label):
+            print('Altametrics password-expiry notice postponed through its "' + label
+                  + '" control; change this password before it expires', flush=True)
+            await control.click()
+            await page.wait_for_timeout(2000)
+            return True
+    return False
+
+
 def classify_announcement(body):
     """Return (kind, reason): the acknowledgeable announcement word, or None and why.
 
@@ -162,6 +187,7 @@ async def wait_login_state(page):
     """Let SSO redirects finish and acknowledge full-page vendor announcements."""
     acknowledged = 0
     declined = None
+    postponed = False
     for _ in range(60):
         await guard(page)
         host = urlsplit(page.url).hostname
@@ -173,6 +199,13 @@ async def wait_login_state(page):
         passwords = await page.locator('input[type="password"]:visible').count()
         if passwords == 1:
             return 'credentials'
+        if passwords >= 2 and 'ers_webApp' in page.url:
+            text = ' '.join((await page.locator('body').inner_text()).lower().split())
+            if any(word in text for word in PASSWORD_EXPIRY_WORDS):
+                if postponed or not await postpone_password_change(page):
+                    raise RuntimeError(PASSWORD_CHANGE_REQUIRED)
+                postponed = True
+                continue
         # A full-page SSO announcement (supplier notices, scheduled maintenance)
         # is not a login form: one submit control, nothing to type into, and no
         # agreement, security or verification wording. Use that control; never
@@ -375,7 +408,9 @@ async def collect(day, config):
                         meta = {'stage': stage, 'host': urlsplit(page.url).hostname,
                                 'dashboard_reached': 'ers_webApp' in page.url,
                                 'frame_hosts': [urlsplit(f.url).hostname for f in page.frames],
-                                'inputs': await page.locator('input:visible').evaluate_all('els => els.map(e => ({id:e.id,type:e.type}))')}
+                                # Button labels are control metadata; field values are never read.
+                                'inputs': await page.locator('input:visible').evaluate_all(
+                                    'els => els.map(e => ({id:e.id,type:e.type,label:["button","submit","reset"].includes(e.type) ? e.value : undefined}))')}
                         (folder / (region + '.json')).write_text(json.dumps(meta, indent=2), encoding='utf-8')
                         if stage == 'metric parsing':
                             # Inspect only report headers and total rows, never
