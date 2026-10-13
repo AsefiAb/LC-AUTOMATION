@@ -217,9 +217,15 @@ formatting, charts, and other workbook contents. Sales are rounded to whole
 dollars in Excel, matching the old automation; email figures retain full cents.
 Transactions remain whole counts.
 
-Every store is required. Missing or ambiguous metrics, wrong dates, conflicting
-existing cells, or unexpected workbook layouts stop delivery. All three files
-are validated before uploads, and uploaded cells are read back for verification.
+Ambiguous metrics, wrong dates, conflicting existing cells, or unexpected
+workbook layouts stop delivery. All three files are validated before uploads,
+and uploaded cells are read back for verification. Since October 13 a store
+whose dashboard states *No Information present for this Selection* for the
+report date no longer blocks the other 17: its email line reads
+`No Altametrics report for this date`, its workbook cells stay blank, the run
+log and `unavailable-stores.json` name it, and the daily catch-up fills the
+cells if the report appears within seven days. Any other missing or malformed
+metric still stops delivery; a blank is never written as zero.
 
 The email contains Colorado, Texas, and Arizona headings, one line per store
 with Labor and Goal, then `Thanks,` and `AB`. Sales and transaction figures are

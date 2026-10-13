@@ -177,7 +177,7 @@ class HybridTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, patch.object(daily, 'FOLDER', Path(folder)), \
              patch.object(daily, 'setup_issues', return_value=[]), \
              patch.object(daily.altametrics, 'fetch'), \
-             patch.object(daily.altametrics, 'validate', return_value=rows), \
+             patch.object(daily.altametrics, 'validate_partial', return_value=(rows, [])), \
              patch.object(daily.tcp_labor, 'fetch', return_value=labor) as tcp, \
              patch.object(daily, 'OneDrive') as drive, patch.object(daily, 'deliver') as send:
             drive.return_value.read.return_value = {'content': sample_workbook()}
@@ -188,6 +188,70 @@ class HybridTests(unittest.TestCase):
             saved = Path(folder) / 'reports/2026-09-16'
             self.assertTrue((saved / 'tcp-labor.json').exists())
             self.assertIn('8.00% (TCP estimate)', (saved / 'email-preview.eml').read_text())
+
+
+class NoReportStoreTests(unittest.TestCase):
+    """A store the dashboard reports as having no Daily Activity Report."""
+    DAY = '2026-10-12'
+
+    def two_store_workbook(self):
+        ns = workbooks.NS['s']
+        sheet = (f'<worksheet xmlns="{ns}"><sheetData><row r="2">'
+            '<c r="E2" t="inlineStr"><is><t>3356-01</t></is></c><c r="F2" t="inlineStr"><is><t>3356-02</t></is></c></row>'
+            f'<row r="12"><c r="A12" t="inlineStr"><is><t>{self.DAY}</t></is></c><c r="E12" s="3"/><c r="F12" s="3"/></row>'
+            '</sheetData></worksheet>')
+        output = io.BytesIO()
+        with zipfile.ZipFile(io.BytesIO(sample_workbook())) as source, zipfile.ZipFile(output, 'w') as dest:
+            for item in source.infolist():
+                data = sheet.encode() if item.filename in ('xl/worksheets/sheet1.xml', 'xl/worksheets/sheet2.xml') else source.read(item.filename)
+                dest.writestr(item, data)
+        return output.getvalue()
+
+    def test_email_names_the_store_and_its_cells_stay_blank_while_others_deliver(self):
+        config = copy.deepcopy(CONFIG)
+        config['stores'] = config['stores'][:2]
+        config['workbooks'] = config['workbooks'][:1]
+        records = [{'store': '3356-01', 'date': self.DAY, 'sales': '1000.00', 'transactions': 100, 'labor_pct': '20.00'},
+                   {'store': '3356-02', 'date': self.DAY, 'unavailable': daily.altametrics.NO_INFORMATION}]
+        labor = tcp_labor.summarize(*labor_fixture())
+        labor['report_date'] = self.DAY
+        labor['stores'] = [{**labor['stores'][0], 'store': '3356-01'}, {**labor['stores'][0], 'store': '3356-02'}]
+        for row in labor['stores']:
+            row['report_date'] = self.DAY
+        original = self.two_store_workbook()
+        updated, _ = workbooks.update(original, [{'store': '3356-01', 'sales': '1000.00', 'transactions': 100}],
+                                      self.DAY, sales_whole_dollars=True, store_layout=['3356-01', '3356-02'])
+        with tempfile.TemporaryDirectory() as folder, patch.object(daily, 'FOLDER', Path(folder)), \
+             patch.object(daily, 'setup_issues', return_value=[]), \
+             patch.object(daily, 'DeliveryLedger') as ledger, \
+             patch.object(daily.altametrics, 'fetch', return_value=records) as fetch, \
+             patch.object(daily.tcp_labor, 'fetch', return_value=labor), \
+             patch.object(daily, 'OneDrive') as drive, patch.object(daily, 'deliver', return_value='sent') as send:
+            ledger.return_value.read.return_value = None
+            drive.return_value.read.side_effect = [{'content': original}, {'content': updated}]
+            daily.run(self.DAY, config)
+            self.assertTrue(fetch.call_args.kwargs['allow_missing'])
+            drive.return_value.write.assert_called_once()
+            sent_content = drive.return_value.write.call_args.args[1]
+            sales = {c['cell']: c['value'] for c in workbooks.input_cells(sent_content, ['3356-01', '3356-02'], self.DAY) if c['sheet'] == 'SALES'}
+            self.assertEqual(sales, {'E12': '1000', 'F12': ''})
+            body = send.call_args.args[0].get_body().get_content()
+            self.assertIn('3356-01: Labor', body)
+            self.assertIn('3356-02: No Altametrics report for this date | Goal 21.50%', body)
+            self.assertIn('filled automatically when the report appears', body)
+            self.assertNotIn('coverage did not reconcile', body)
+            saved = json.loads((Path(folder) / 'reports' / self.DAY / 'unavailable-stores.json').read_text())
+            self.assertEqual([item['store'] for item in saved], ['3356-02'])
+            status = json.loads((Path(folder) / 'reports' / 'run-status.json').read_text())
+            self.assertEqual(status['unavailable_stores'], ['3356-02'])
+
+    def test_stores_without_a_row_or_a_reason_are_not_invented_in_the_email(self):
+        rows = [{'store': '3356-01', 'report_date': self.DAY, 'region': 'CO', 'sales': '1000.00',
+                 'transactions': 100, 'labor_goal_pct': '23.50', 'labor_pct': '20.00'}]
+        body = daily.email_message(self.DAY, rows, [], CONFIG).get_body().get_content()
+        self.assertIn('3356-01: Labor 20.00%', body)
+        self.assertNotIn('3356-02', body)
+        self.assertNotIn('No Altametrics report', body)
 
 
 class WorkbookTests(unittest.TestCase):

@@ -441,8 +441,8 @@ async def collect(day, config, allow_missing=False):
             await browser.close()
 
 
-def fetch(day, config):
-    return asyncio.run(collect(day, config))
+def fetch(day, config, allow_missing=False):
+    return asyncio.run(collect(day, config, allow_missing))
 
 
 def fetch_many(days, config, allow_missing=False):

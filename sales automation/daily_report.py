@@ -222,7 +222,12 @@ def apply_tcp_estimate(day, rows, labor):
     return output
 
 
-def email_message(day, rows, attachments, config):
+NO_REPORT_NOTE = ('Stores marked "No Altametrics report" had no Daily Activity Report for this date. '
+                  'Their workbook cells were left blank and are filled automatically when the report '
+                  'appears within seven days.')
+
+
+def email_message(day, rows, attachments, config, unavailable=()):
     msg = EmailMessage()
     msg['From'] = config['sender']
     msg['To'] = ', '.join(config['to'])
@@ -230,10 +235,15 @@ def email_message(day, rows, attachments, config):
     msg['Subject'] = 'Daily Sales & Labor ' + day
     msg['Message-ID'] = '<sales-' + day + '@caazllc.com>'
     lines = ['Sales and transactions are in the attached Excel workbooks.', '']
+    missing = {item['store'] for item in unavailable}
+    by_store = {row['store']: row for row in rows}
     for region in config['workbooks']:
         lines.append(region['name'])
-        for row in rows:
-            if row['region'] != region['region']:
+        for store in (s for s in config['stores'] if s['region'] == region['region']):
+            row = by_store.get(store['store'])
+            if row is None:
+                if store['store'] in missing:
+                    lines.append(f"{store['store']}: No Altametrics report for this date | Goal {store['labor_goal_pct']}%")
                 continue
             if row['labor_pct'] is not None:
                 pct = row['labor_pct'] + '%'
@@ -256,6 +266,8 @@ def email_message(day, rows, attachments, config):
         lines.extend(['TCP estimate = calculated worked hours × returned wage rate ÷ Altametrics net sales. '
             'Excludes overtime premiums, salary allocation, taxes and benefits. '
             'Overnight hours use the clock-in date; alignment with the sales business day is not yet verified.', ''])
+    if missing:
+        lines.extend([NO_REPORT_NOTE, ''])
     lines.extend(['Thanks,', 'AB'])
     msg.set_content('\n'.join(lines))
     for path in attachments:
@@ -376,9 +388,16 @@ def run(day, config, preview=False):
             return
         if previous:
             raise ReportError('A previous delivery is unresolved; inspect its receipt before retrying.')
+    unavailable = []
     if config.get('source') == 'Altametrics':
         update_run_status(phase='source reports')
-        rows = altametrics.validate(day, altametrics.fetch(day, config), config)
+        # A store whose dashboard states it has no report for the date is listed
+        # in the email and keeps blank workbook cells; it never blocks the others.
+        rows, unavailable = altametrics.validate_partial(day, altametrics.fetch(day, config, allow_missing=True), config)
+        if unavailable:
+            update_run_status(unavailable_stores=[item['store'] for item in unavailable])
+            print('No Altametrics report for ' + ', '.join(item['store'] for item in unavailable)
+                  + ' on ' + day + '; those workbook cells stay blank.', flush=True)
         if config.get('labor_source') in ('TCP base wage estimate', 'TCP wage estimate'):
             try:
                 labor = tcp_labor.fetch(day, config)
@@ -386,7 +405,8 @@ def run(day, config, preview=False):
                 # Do not leak API responses or replace a failed request with old data.
                 labor = {'report_date': day, 'stores': [], 'complete': False,
                          'issues': ['TCP labor request failed; no estimate available.']}
-            rows = apply_tcp_estimate(day, rows, labor)
+            available = {row['store'] for row in rows}
+            rows = apply_tcp_estimate(day, rows, {**labor, 'stores': [s for s in labor.get('stores', []) if s['store'] in available]})
     else:
         labor = tcp_labor.fetch(day, config)
         rows = validate(day, fetch_metrics(day, config), labor, config)
@@ -400,12 +420,19 @@ def run(day, config, preview=False):
         (output / 'tcp-labor.json').write_text(json.dumps(labor, indent=2), encoding='utf-8')
     # Preserve source totals before a workbook conflict or download failure.
     (output / 'store-totals.json').write_text(json.dumps(rows, indent=2), encoding='utf-8')
+    if unavailable:
+        (output / 'unavailable-stores.json').write_text(json.dumps(unavailable, indent=2), encoding='utf-8')
+    whole_dollars = config.get('workbook_sales_rounding') == 'whole_dollars'
     for book in config['workbooks']:
         update_run_status(active_region=book['region'])
         snapshot = drive.read(book['url'])
         region_rows = [row for row in rows if row['region'] == book['region']]
-        content, changes = update(snapshot['content'], region_rows, day,
-            sales_whole_dollars=config.get('workbook_sales_rounding') == 'whole_dollars')
+        layout = [s['store'] for s in config['stores'] if s['region'] == book['region']]
+        if region_rows:
+            content, changes = update(snapshot['content'], region_rows, day,
+                sales_whole_dollars=whole_dollars, store_layout=layout)
+        else:
+            content, changes = snapshot['content'], []  # Every store unavailable: attach unchanged.
         path = output / (book['region'] + ' Sales ' + day + '.xlsx')
         prepared.append((book, snapshot, content, changes, path))
     # All three files are validated before the first upload.
@@ -417,7 +444,8 @@ def run(day, config, preview=False):
             drive.write(snapshot, content)
             verified = drive.read(book['url'])
             _, remaining = update(verified['content'], [r for r in rows if r['region'] == book['region']], day,
-                sales_whole_dollars=config.get('workbook_sales_rounding') == 'whole_dollars')
+                sales_whole_dollars=whole_dollars,
+                store_layout=[s['store'] for s in config['stores'] if s['region'] == book['region']])
             if remaining:
                 raise ReportError('OneDrive did not retain all expected updates.')
             content = verified['content']
@@ -425,7 +453,7 @@ def run(day, config, preview=False):
         if not preview:
             verified_regions.append(book['region'])
             update_run_status(workbook_regions_verified=verified_regions)
-    message = email_message(day, rows, [item[4] for item in prepared], config)
+    message = email_message(day, rows, [item[4] for item in prepared], config, unavailable)
     if len(message.as_bytes()) > 24_000_000:
         raise ReportError('Email attachments exceed the supported 24 MB encoded-message limit.')
     (output / 'email-preview.eml').write_bytes(message.as_bytes())
@@ -491,10 +519,12 @@ def main():
                 issues.append('OneDrive check failed (' + type(exc).__name__ + ')')
         if config.get('source') == 'Altametrics' and not altametrics.missing_secrets():
             try:
-                rows = altametrics.validate(day, altametrics.fetch(day, config), config)
+                rows, unavailable = altametrics.validate_partial(day, altametrics.fetch(day, config, allow_missing=True), config)
                 output = FOLDER / 'reports' / ('altametrics-' + day + '.json')
                 output.parent.mkdir(parents=True, exist_ok=True)
                 output.write_text(json.dumps(rows, indent=2), encoding='utf-8')
+                issues.extend(item['store'] + ': no Altametrics report for ' + day + ' (email would say so; cells stay blank)'
+                              for item in unavailable)
             except (altametrics.AltametricsError, ValueError) as exc:
                 issues.append(str(exc))
         if (config.get('source') == 'TCP' or config.get('labor_source') in ('TCP base wage estimate', 'TCP wage estimate')) and all(
