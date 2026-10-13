@@ -134,7 +134,7 @@ def repair(start, end, config, *, preview=False, gaps_only=False,
         config, reviewed_rows, reviewed = reviewed_source(source_records, source_sha256, start, end, config)
     elif source_sha256:
         raise ValueError('A source digest requires an explicit reviewed source file.')
-    unavailable = reviewed.get('unavailable', []) if reviewed else []
+    unavailable = list(reviewed.get('unavailable', [])) if reviewed else []
     output = FOLDER / 'reports' / ('workbook-repair-' + start + '_' + end)
     output.mkdir(parents=True, exist_ok=True)
     audit = {'start': start, 'end': end, 'preview': preview, 'gaps_only': gaps_only,
@@ -186,11 +186,27 @@ def repair(start, end, config, *, preview=False, gaps_only=False,
     if reviewed_rows is not None:
         by_day = {day: reviewed_rows[day] for day in sorted(needed_dates)}
     else:
-        raw = altametrics.fetch_many(sorted(needed_dates), config)
+        # Blank-cell recovery tolerates a store/date the dashboard reports as
+        # having no information: the cell stays blank and the audit lists it.
+        # Value corrections still require every store on every date.
+        raw = altametrics.fetch_many(sorted(needed_dates), config, allow_missing=gaps_only)
         if any(record.get('date') not in needed_dates for record in raw):
             raise ValueError('Source contains a date outside this recovery request.')
-        by_day = {day: altametrics.validate(day, [r for r in raw if r.get('date') == day], config)
-                  for day in sorted(needed_dates)}
+        by_day = {}
+        for day in sorted(needed_dates):
+            records = [r for r in raw if r.get('date') == day]
+            if gaps_only:
+                by_day[day], missing = altametrics.validate_partial(day, records, config)
+                unavailable.extend(missing)
+            else:
+                by_day[day] = altametrics.validate(day, records, config)
+        regions = {s['store']: s['region'] for s in config['stores']}
+        audit['unavailable'] = unavailable
+        audit['unverified_cells'] = [
+            {**cell, 'date': item['date'], 'region': regions[item['store']]}
+            for book, snapshot, stores, entry in prepared
+            for item in unavailable if regions[item['store']] == book['region']
+            for cell in input_cells(snapshot['content'], stores, item['date']) if cell['store'] == item['store']]
     (output / 'source-records.json').write_text(json.dumps(by_day, indent=2), encoding='utf-8')
     audit['dates_read'] = sorted(needed_dates)
     audit['available_record_count'] = sum(len(rows) for rows in by_day.values())

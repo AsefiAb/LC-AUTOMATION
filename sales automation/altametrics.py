@@ -344,7 +344,7 @@ async def select_store(page, store):
         raise RuntimeError('Altametrics did not retain the requested single store')
 
 
-async def collect(day, config):
+async def collect(day, config, allow_missing=False):
     days = day if isinstance(day, list) else [day]
     if not days or len(set(days)) != len(days):
         raise ValueError('Report dates must be nonempty and unique')
@@ -362,7 +362,7 @@ async def collect(day, config):
                 try:
                     page = await page_for(p, region)
                     await verify_account_region(page, region)
-                    rows.extend(await read_region_days(page, region, days, config))
+                    rows.extend(await read_region_days(page, region, days, config, allow_missing=allow_missing))
                 except Exception as exc:
                     detail = str(exc) if type(exc) in (RuntimeError, ValueError) else type(exc).__name__
                     raise AltametricsError(region + ': dedicated browser needs attention: ' + detail) from None
@@ -395,7 +395,7 @@ async def collect(day, config):
                     def set_stage(value):
                         nonlocal stage
                         stage = value
-                    rows = await read_region_days(page, region, days, config, set_stage)
+                    rows = await read_region_days(page, region, days, config, set_stage, allow_missing)
                     if session:
                         local_sessions.save(region, make_session(region, page.url, await context.storage_state()))
                     return rows
@@ -445,15 +445,19 @@ def fetch(day, config):
     return asyncio.run(collect(day, config))
 
 
-def fetch_many(days, config):
-    """Read multiple completed dates using one verified login per region."""
-    return asyncio.run(collect(list(days), config))
+def fetch_many(days, config, allow_missing=False):
+    """Read multiple completed dates using one verified login per region.
+
+    With allow_missing, a store/date the dashboard reports as having no
+    information is returned as an explicit unavailable record, never as zero.
+    """
+    return asyncio.run(collect(list(days), config, allow_missing))
 
 
-async def read_region_days(page, region, days, config, set_stage=lambda value: None):
+async def read_region_days(page, region, days, config, set_stage=lambda value: None, allow_missing=False):
     records = []
     for day in days:
-        rows = await read_region_report(page, region, day, config, set_stage)
+        rows = await read_region_report(page, region, day, config, set_stage, allow_missing)
         # Preserve verified source values even if a later region/day or OneDrive
         # fails. No credentials, employee records or session URLs are retained.
         folder = Path(__file__).parent / 'reports' / 'source-snapshots' / day
@@ -463,27 +467,66 @@ async def read_region_days(page, region, days, config, set_stage=lambda value: N
     return records
 
 
-async def read_region_report(page, region, day, config, set_stage=lambda value: None):
+NO_INFORMATION = 'No Information present for this Selection'
+
+
+async def select_store_day(page, store, day, set_stage):
+    set_stage('store selection')
+    await select_store(page, store)
+    set_stage('date selection')
+    await select_date(page, day)
+    selected = await page.locator('#FILTER_STORE_GO').locator('xpath=ancestor::form[1]').locator('input.storeSelectorDrop:visible').input_value()
+    franchise, index = store.split('-')
+    if set(re.findall(r'\d{4,5}-\d{2,5}', selected)) != {f'0{franchise}-{int(index):05d}'}:
+        raise RuntimeError('Report date change reset the store selection')
+    set_stage('metric parsing')
+
+
+async def read_region_report(page, region, day, config, set_stage=lambda value: None, allow_missing=False):
     rows = []
     for store in (s['store'] for s in config['stores'] if s['region'] == region):
-        set_stage('store selection')
-        await select_store(page, store)
-        set_stage('date selection')
-        await select_date(page, day)
-        selected = await page.locator('#FILTER_STORE_GO').locator('xpath=ancestor::form[1]').locator('input.storeSelectorDrop:visible').input_value()
-        franchise, index = store.split('-')
-        if set(re.findall(r'\d{4,5}-\d{2,5}', selected)) != {f'0{franchise}-{int(index):05d}'}:
-            raise RuntimeError('Report date change reset the store selection')
-        set_stage('metric parsing')
-        rows.append({'store': store, 'date': day, **parse_tables(await report_tables(page))})
-        print(f'{store}: report date and metrics verified', flush=True)
+        for attempt in range(2):
+            await select_store_day(page, store, day, set_stage)
+            try:
+                rows.append({'store': store, 'date': day, **parse_tables(await report_tables(page))})
+                print(f'{store}: report date and metrics verified', flush=True)
+                break
+            except ValueError:
+                # The dashboard states when a store/date has no report. With
+                # allow_missing that is recorded explicitly after one re-read;
+                # a blank amount is never treated as zero. Any other parse
+                # problem, or a daily read, still stops the collection.
+                body = (await page.locator('body').inner_text()).lower()
+                if not allow_missing or NO_INFORMATION.lower() not in body:
+                    raise
+                if attempt == 1:
+                    rows.append({'store': store, 'date': day, 'unavailable': NO_INFORMATION})
+                    print(f'{store}: no report for {day}; recorded as unavailable', flush=True)
     return rows
+
+
+def validate_partial(day, records, config):
+    """Validate available store records; return (rows, unavailable) with full coverage."""
+    by_store = {r['store']: r for r in records}
+    if len(by_store) != len(records) or set(by_store) != {s['store'] for s in config['stores']}:
+        raise ValueError('Altametrics did not return every configured store exactly once')
+    unavailable = [{'date': day, 'store': r['store'], 'reason': r['unavailable']}
+                   for r in records if r.get('unavailable')]
+    for item in unavailable:
+        if item['reason'] != NO_INFORMATION or by_store[item['store']]['date'] != day:
+            raise ValueError('Altametrics unavailable record has an unexpected reason or date')
+    missing = {item['store'] for item in unavailable}
+    available = [s for s in config['stores'] if s['store'] not in missing]
+    rows = validate(day, [r for r in records if not r.get('unavailable')], {**config, 'stores': available}) if available else []
+    return rows, unavailable
 
 
 def validate(day, records, config):
     by_store = {r['store']: r for r in records}
     if len(by_store) != len(records) or set(by_store) != {s['store'] for s in config['stores']}:
         raise ValueError('Altametrics did not return every configured store exactly once')
+    if any(r.get('unavailable') for r in records):
+        raise ValueError('Altametrics has no report for a required store; every store is required')
     result = []
     for store in config['stores']:
         record = by_store[store['store']]

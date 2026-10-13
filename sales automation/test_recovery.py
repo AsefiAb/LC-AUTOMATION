@@ -240,6 +240,44 @@ class WorkbookRecoveryTests(unittest.TestCase):
             self.assertTrue(result['workbooks'][0]['verified'])
 
 
+class MissingStoreDayTests(unittest.IsolatedAsyncioTestCase):
+    def page(self, no_information):
+        page = Mock()
+        body = Mock(inner_text=AsyncMock(return_value=altametrics.NO_INFORMATION if no_information else 'Daily Activity Report'))
+        chain = Mock()
+        chain.locator.return_value.locator.return_value.input_value = AsyncMock(return_value='03356-00003')
+        page.locator.side_effect = lambda selector: {'body': body, '#FILTER_STORE_GO': chain}[selector]
+        return page
+
+    async def test_no_information_store_day_is_recorded_unavailable_only_when_allowed(self):
+        config = {'stores': [{'store': '3356-03', 'region': 'CO'}]}
+        empty = [[['Time', 'Product Net', 'Trans', '', '', '', '', 'Punched Labor %'], ['Actual Total', '', '', '', '', '', '', '']]]
+        with patch.object(altametrics, 'select_store', AsyncMock()) as select, \
+                patch.object(altametrics, 'select_date', AsyncMock()), \
+                patch.object(altametrics, 'report_tables', AsyncMock(return_value=empty)):
+            rows = await altametrics.read_region_report(self.page(True), 'CO', '2026-10-05', config, allow_missing=True)
+            self.assertEqual(rows, [{'store': '3356-03', 'date': '2026-10-05', 'unavailable': altametrics.NO_INFORMATION}])
+            self.assertEqual(select.await_count, 2)  # One re-read before recording.
+            with self.assertRaises(ValueError):
+                await altametrics.read_region_report(self.page(True), 'CO', '2026-10-05', config)
+            with self.assertRaises(ValueError):  # Empty table without the dashboard's statement is an error.
+                await altametrics.read_region_report(self.page(False), 'CO', '2026-10-05', config, allow_missing=True)
+
+    def test_partial_validation_keeps_full_coverage_and_strict_daily_validation(self):
+        config = {'stores': [{'store': '3356-01', 'region': 'CO'}, {'store': '3356-03', 'region': 'CO'}]}
+        good = {'store': '3356-01', 'date': '2026-10-05', 'sales': '100.00', 'transactions': 10, 'labor_pct': '0'}
+        gone = {'store': '3356-03', 'date': '2026-10-05', 'unavailable': altametrics.NO_INFORMATION}
+        rows, unavailable = altametrics.validate_partial('2026-10-05', [good, gone], config)
+        self.assertEqual([r['store'] for r in rows], ['3356-01'])
+        self.assertEqual(unavailable, [{'date': '2026-10-05', 'store': '3356-03', 'reason': altametrics.NO_INFORMATION}])
+        with self.assertRaises(ValueError):
+            altametrics.validate_partial('2026-10-05', [good], config)  # Missing store is not implicitly unavailable.
+        with self.assertRaises(ValueError):
+            altametrics.validate_partial('2026-10-05', [good, {**gone, 'unavailable': 'closed'}], config)
+        with self.assertRaisesRegex(ValueError, 'every store is required'):
+            altametrics.validate('2026-10-05', [good, gone], config)
+
+
 class ReviewedSourceTests(unittest.TestCase):
     def fixture(self):
         config = copy.deepcopy(CONFIG)
@@ -392,6 +430,48 @@ class ReviewedSourceTests(unittest.TestCase):
             with zipfile.ZipFile(io.BytesIO(sent_content)) as book:
                 root = workbooks.xml(book.read('xl/worksheets/sheet1.xml'))
                 self.assertEqual(root.find('.//' + workbooks.S + 'c[@r="H12"]/' + workbooks.S + 'f').text, 'SUM(E12:G12)')
+
+    def test_fresh_gaps_recovery_preserves_a_no_information_store_day_and_reports_it(self):
+        config, _ = self.fixture()
+        config['stores'] = CONFIG['stores'][:3]
+        config['workbooks'] = CONFIG['workbooks'][:1]
+        day = '2026-09-16'
+        records = [{'store': '3356-01', 'date': day, 'sales': '1234.56', 'transactions': 200, 'labor_pct': '0'},
+                   {'store': '3356-02', 'date': day, 'unavailable': altametrics.NO_INFORMATION},
+                   {'store': '3356-03', 'date': day, 'sales': '5678.90', 'transactions': 300, 'labor_pct': '0'}]
+        ns = workbooks.NS['s']
+        sheet = (f'<worksheet xmlns="{ns}"><sheetData><row r="2">'
+            + ''.join(f'<c r="{column}2" t="inlineStr"><is><t>{store}</t></is></c>'
+                      for column, store in zip('EFG', ['3356-01', '3356-02', '3356-03']))
+            + f'</row><row r="12"><c r="A12" t="inlineStr"><is><t>{day}</t></is></c>'
+            + '<c r="E12" s="3"/><c r="F12" s="3"/><c r="G12" s="3"/></row></sheetData></worksheet>')
+        output = io.BytesIO()
+        with zipfile.ZipFile(io.BytesIO(sample_workbook())) as source, zipfile.ZipFile(output, 'w') as dest:
+            for item in source.infolist():
+                data = sheet.encode() if item.filename in ('xl/worksheets/sheet1.xml', 'xl/worksheets/sheet2.xml') else source.read(item.filename)
+                dest.writestr(item, data)
+        original = output.getvalue()
+        updated, _ = workbooks.update(original, [r for r in records if 'sales' in r], day,
+            sales_whole_dollars=True, only_blank=True, store_layout=['3356-01', '3356-02', '3356-03'])
+        with tempfile.TemporaryDirectory() as folder, patch.object(repair_workbooks, 'FOLDER', Path(folder)), \
+                patch.object(repair_workbooks, 'OneDrive') as drive, \
+                patch.object(repair_workbooks.altametrics, 'fetch_many', return_value=records) as fetch:
+            drive.return_value.read.side_effect = [{'content': original}, {'content': updated}]
+            result = repair_workbooks.repair(day, day, config, gaps_only=True)
+            self.assertTrue(fetch.call_args.kwargs['allow_missing'])
+            self.assertFalse(result['complete'])
+            self.assertTrue(result['workbooks'][0]['verified'])
+            self.assertEqual(result['unavailable'], [{'date': day, 'store': '3356-02', 'reason': altametrics.NO_INFORMATION}])
+            self.assertEqual({(c['sheet'], c['cell']) for c in result['unverified_cells']}, {('SALES', 'F12'), ('TRANS', 'F12')})
+            sent = drive.return_value.write.call_args.args[1]
+            sales = {c['cell']: c['value'] for c in workbooks.input_cells(sent, ['3356-01', '3356-02', '3356-03'], day) if c['sheet'] == 'SALES'}
+            self.assertEqual(sales, {'E12': '1235', 'F12': '', 'G12': '5679'})
+            # Value corrections keep requiring every store.
+            fetch.reset_mock()
+            drive.return_value.read.side_effect = [{'content': original}]
+            with self.assertRaisesRegex(ValueError, 'every store is required'):
+                repair_workbooks.repair(day, day, config)
+            self.assertFalse(fetch.call_args.kwargs['allow_missing'])
 
     def test_unavailable_cannot_overlap_records_or_hide_unknown_store(self):
         for store in ('3759-01', '3759-99'):

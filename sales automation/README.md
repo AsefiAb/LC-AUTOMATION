@@ -101,7 +101,11 @@ on a *Create New Password* page stating "Your password will expire in 5 days".
 The adapter never changes passwords. It now uses that page's own postpone
 control (Skip, Later, Remind me later, Not now, Cancel and similar labels) once
 per login and otherwise stops with `requires a password change`, which the
-owner notice reports as its own cause. The owner must change each regional
+owner notice reports as its own cause. The page offers *Change Password* and
+*Cancel*; [run 38326050185](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/38326050185)
+confirmed that *Cancel* reaches the dashboard and read all 18 stores for
+October 11, leaving only a TCP wage-rate gap for 3356-03 that labels that
+store's labor as unavailable without blocking delivery. The owner must change each regional
 Altametrics password in the portal before it expires (about October 17) and
 then update `COLORADO_PASSWORD`, `AZ_PASSWORD` and `TX_PASSWORD` in GitHub
 Secrets. Until both steps are done, scheduled delivery stays blocked once the
@@ -252,6 +256,12 @@ sales/transaction cells and fill them from fresh Altametrics reports. Existing
 nonblank historical values are preserved by this automatic catch-up; use
 `repair` for known incorrect values. Only the current daily email is sent.
 An older unresolved gap keeps the run failed even if the current email succeeds.
+When the dashboard states *No Information present for this Selection* for a
+store/date (for example 3356-03 on October 5), blank-cell recovery re-reads it
+once, then keeps that cell blank and lists it under `unavailable` and
+`unverified_cells` in `repair-audit.json` with `complete: false`, instead of
+abandoning every other store and date. A blank amount is never written as zero.
+The daily email and the `repair` correction modes still require every store.
 
 Repair accepts at most 31 completed dates. It reuses one login per region,
 requires all 18 stores on every requested source date, and validates all three
