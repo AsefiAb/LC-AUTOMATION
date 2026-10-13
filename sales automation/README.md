@@ -79,11 +79,18 @@ current-report failure still runs the blank-cell catch-up before the run fails;
 and an already-delivered date still lets later slots recover older gaps. The
 owner notice names the catch-up window whenever it was not completed.
 
-Workbook state as of the October 12 artifact: September 28–October 4 complete;
+Workbook state before the October 12 repair: September 28–October 4 complete;
 October 5 complete except 3356-03 (sales and transactions blank);
-**October 6–11 blank for all 18 stores** (216 cells). Once the fix is on `main`,
-the next scheduled delivery fills those dates automatically through its catch-up,
-provided Altametrics does not challenge the runner again. The catch-up covers
+October 6–11 blank for all 18 stores (216 cells).
+[Run 38331617990](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/38331617990)
+(`repair-gaps`, October 5–11) then filled and read back **214 cells**
+(Colorado 82, Texas 48, Arizona 84). Two store-days stay blank because the
+dashboard has no report for them: **3356-03 on October 5 and October 7**
+(*No Information present for this Selection*). Altametrics also reports
+3356-03 at $0 with 0 transactions on October 6, which was written as reported;
+use `repair` with a reviewed source if that store's figures are later corrected.
+Daily catch-up re-reads those two store-days each morning until they leave the
+seven-day window (October 15), which adds a few minutes and no failure. The catch-up covers
 only the seven dates before the report date, so the whole October 5–11 gap is
 inside the window only for a scheduled success on October 12 or 13; from
 October 14 the window drops one older date per day, and dates outside it produce
