@@ -236,10 +236,19 @@ Cc: jeff@caazllc.com, caleb@lccollc.com, wilder@lccollc.com.
 ## Schedule and manual runs
 
 The target is daily **08:00 America/Los_Angeles**, reporting the previous day.
-UTC checks at 15:00, 16:00, 18:00, 20:00 and 22:00 cover daylight saving,
-delayed runs and temporary portal failures.
-The Pacific time gate skips early runs; the delivery receipt skips dates already
-sent. GitHub jobs may start late, so exact 08:00 execution is not guaranteed.
+Through October 12 the cron slots sat at the top of the hour, which GitHub
+documents as its peak load: the 08:00 Pacific slot almost never started and
+the email usually left between 12:15 and 1:00 PM. Slots now use off-peak
+minutes: 14:47, 15:07, 15:27, 15:52, 16:22, 16:52, 17:07, 18:07, 20:07 and
+22:07 UTC. `schedule_gate.py` (`run_time` in `config.json`) allows a run from
+**07:45** local time in both PDT and PST, so the first eligible slot is 7:47 AM
+in summer and 7:52 AM in winter. A slot that starts late still delivers once.
+Earlier slots exit at the gate before installing anything. After a delivery,
+`daily_report.py` notes the catch-up outcome on the date's receipt
+(`catch_up: complete` or `failed`); the gate reads that receipt and later slots
+exit in seconds unless the catch-up still needs a retry. A receipt read problem
+never blocks a run; the delivery itself still checks the ledger before sending.
+GitHub still does not guarantee the exact start time.
 `SALES_AUTOMATION_ENABLED=true` is enabled. Do not enable the old schedule too.
 
 GitHub Actions -> **Daily sales report** -> **Run workflow**:

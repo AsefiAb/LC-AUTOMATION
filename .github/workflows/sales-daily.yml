@@ -1,8 +1,14 @@
 name: Daily sales report
 on:
   schedule:
-    # One local 08:00 run, with the Python gate accounting for Pacific DST.
-    - cron: '0 15,16,18,20,22 * * *'
+    # Off-peak minutes: GitHub delays or drops top-of-the-hour schedules. The
+    # Python gate (schedule_gate.py, run_time in config.json) allows a run from
+    # 07:45 America/Los_Angeles in both PDT and PST; earlier slots exit before
+    # installing anything, and later slots are retries that stop at the receipt.
+    - cron: '47 14 * * *'
+    - cron: '7,27,52 15 * * *'
+    - cron: '22,52 16 * * *'
+    - cron: '7 17,18,20,22 * * *'
   workflow_dispatch:
     inputs:
       report_date:
@@ -49,20 +55,26 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
-      - run: python -m pip install -r 'sales automation/requirements.txt'
-      - run: python -m playwright install --with-deps chromium
-      - name: Verify reporting safeguards
-        run: python -m unittest discover -s 'sales automation' -p 'test_*.py' -v
-      - name: Check local run time
+      - name: Check local run time and delivery receipt
         id: gate
         env:
           EVENT_NAME: ${{ github.event_name }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           if [ "$EVENT_NAME" = workflow_dispatch ]; then
-            echo 'run=true' >> "$GITHUB_OUTPUT"
+            gate=true
           else
-            echo "run=$(python 'sales automation/daily_report.py' --schedule-gate)" >> "$GITHUB_OUTPUT"
+            gate=$(python 'sales automation/schedule_gate.py')
           fi
+          case "$gate" in true|false) ;; *) echo "schedule_gate.py printed '$gate'" >&2; exit 1 ;; esac
+          echo "run=$gate" >> "$GITHUB_OUTPUT"
+      - if: steps.gate.outputs.run == 'true'
+        run: python -m pip install -r 'sales automation/requirements.txt'
+      - if: steps.gate.outputs.run == 'true'
+        run: python -m playwright install --with-deps chromium
+      - name: Verify reporting safeguards
+        if: steps.gate.outputs.run == 'true'
+        run: python -m unittest discover -s 'sales automation' -p 'test_*.py' -v
       - name: Validate sources, update workbooks, and deliver
         if: steps.gate.outputs.run == 'true'
         env:
@@ -129,7 +141,10 @@ jobs:
         env:
           CAAZ_GMAIL_APP_PASS: ${{ secrets.CAAZ_GMAIL_APP_PASS }}
           GITHUB_TOKEN: ${{ github.token }}
-        run: python 'sales automation/notify_failure.py'
+        run: |
+          # A failure before the gated install must still produce the owner notice.
+          python -m pip install --quiet -r 'sales automation/requirements.txt'
+          python 'sales automation/notify_failure.py'
       - name: Keep private reports briefly
         if: always() && steps.gate.outputs.run == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -163,22 +178,30 @@ jobs:
           python -m venv $salesVenv
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           (Join-Path $salesVenv 'Scripts') | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-      - run: python -m pip install -r 'sales automation/requirements.txt'
-      - run: python -m playwright install chromium
-      - name: Verify reporting safeguards
-        run: python -m unittest discover -s 'sales automation' -p 'test_*.py' -v
-      - name: Check local run time
+      - name: Check local run time and delivery receipt
         id: gate
         env:
           EVENT_NAME: ${{ github.event_name }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
+          # Windows Python needs the tzdata package for IANA zones; nothing else before the gate.
+          python -m pip install --quiet tzdata==2025.3
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if ($env:EVENT_NAME -eq 'workflow_dispatch') {
-            'run=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            $gate = 'true'
           } else {
-            $gate = python 'sales automation/daily_report.py' --schedule-gate
+            $gate = (python 'sales automation/schedule_gate.py' | Out-String).Trim()
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            "run=$gate" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           }
+          if ($gate -ne 'true' -and $gate -ne 'false') { Write-Error "schedule_gate.py printed '$gate'"; exit 1 }
+          "run=$gate" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+      - if: steps.gate.outputs.run == 'true'
+        run: python -m pip install -r 'sales automation/requirements.txt'
+      - if: steps.gate.outputs.run == 'true'
+        run: python -m playwright install chromium
+      - name: Verify reporting safeguards
+        if: steps.gate.outputs.run == 'true'
+        run: python -m unittest discover -s 'sales automation' -p 'test_*.py' -v
       - name: Validate sources, update workbooks, and deliver
         if: steps.gate.outputs.run == 'true'
         env:
@@ -234,7 +257,12 @@ jobs:
         env:
           CAAZ_GMAIL_APP_PASS: ${{ secrets.CAAZ_GMAIL_APP_PASS }}
           GITHUB_TOKEN: ${{ github.token }}
-        run: python 'sales automation/notify_failure.py'
+        run: |
+          # A failure before the gated install must still produce the owner notice.
+          python -m pip install --quiet -r 'sales automation/requirements.txt'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python 'sales automation/notify_failure.py'
+          exit $LASTEXITCODE
       - name: Keep private reports briefly
         if: always() && steps.gate.outputs.run == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

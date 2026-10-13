@@ -335,6 +335,20 @@ def deliver(message, ledger, day):
     return 'sent'
 
 
+def record_catch_up(day, status):
+    """Note the catch-up outcome on a sent receipt so later slots can skip at the gate.
+
+    The marker only saves work; it never changes whether an email is sent.
+    """
+    try:
+        ledger = DeliveryLedger(day)
+        receipt = ledger.read()
+        if receipt and receipt.get('status') == 'sent' and receipt.get('catch_up') != status:
+            ledger.write({**receipt, 'catch_up': status})
+    except Exception:
+        pass
+
+
 def check_email_login():
     password = os.environ.get('CAAZ_GMAIL_APP_PASS', '').replace(' ', '')
     if not password:
@@ -436,9 +450,8 @@ def main():
     config = json.loads((FOLDER / 'config.json').read_text())
     now = datetime.now(timezone.utc)
     if args.schedule_gate:
-        local = now.astimezone(ZoneInfo(config['timezone']))
-        eligible = local.hour >= config['run_hour']
-        print('true' if eligible else 'false')
+        from schedule_gate import eligible
+        print('true' if eligible(now, config) else 'false')
         return 0
     day = checked_date(args.date or report_date(now, config['timezone']), config)
     update_run_status(reset=True, report_date=day, complete=False,
@@ -534,6 +547,8 @@ def main():
         catch_up()  # Non-portal failures still let older gaps recover now.
         raise
     catch_up_problem = catch_up()
+    if window and not args.preview:
+        record_catch_up(day, 'failed' if catch_up_problem else 'complete')
     if catch_up_problem:
         raise ReportError('Current report completed, but earlier workbook gaps need attention: ' + catch_up_problem)
     update_run_status(complete=True, phase='complete')

@@ -225,6 +225,35 @@ class WorkbookRecoveryTests(unittest.TestCase):
             self.assertIn('recovery for 2026-09-09 through 2026-09-15 was not completed', body)
             self.assertIn('did not attempt to send it', body)
 
+    def test_catch_up_outcome_is_recorded_on_the_sent_receipt_for_later_slots(self):
+        config, _ = self.fixture()
+        for outcome, repair_effect in (('complete', {'complete': True}), ('failed', ValueError('Source unavailable'))):
+            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as folder:
+                (Path(folder) / 'config.json').write_text(json.dumps(config))
+                ledger = Mock()
+                ledger.read.return_value = {'date': '2026-09-16', 'status': 'sent'}
+                with patch.object(daily_report, 'FOLDER', Path(folder)), \
+                        patch('sys.argv', ['daily_report.py', '--date', '2026-09-16', '--catch-up-days', '7']), \
+                        patch.object(repair_workbooks, 'repair', **({'side_effect': repair_effect} if isinstance(repair_effect, Exception) else {'return_value': repair_effect})), \
+                        patch.object(daily_report, 'run'), patch.object(daily_report, 'DeliveryLedger', return_value=ledger):
+                    if outcome == 'complete':
+                        self.assertEqual(daily_report.main(), 0)
+                    else:
+                        with self.assertRaises(daily_report.ReportError):
+                            daily_report.main()
+                ledger.write.assert_called_once_with({'date': '2026-09-16', 'status': 'sent', 'catch_up': outcome})
+
+    def test_receipt_marker_never_touches_unsent_or_uncertain_receipts(self):
+        for receipt in (None, {'status': 'sending'}, {'status': 'sent', 'catch_up': 'complete'}):
+            with self.subTest(receipt=receipt):
+                ledger = Mock()
+                ledger.read.return_value = receipt
+                with patch.object(daily_report, 'DeliveryLedger', return_value=ledger):
+                    daily_report.record_catch_up('2026-09-16', 'complete')
+                ledger.write.assert_not_called()
+        with patch.object(daily_report, 'DeliveryLedger', side_effect=daily_report.ReportError('no ledger')):
+            daily_report.record_catch_up('2026-09-16', 'complete')  # Never raises.
+
     def test_successful_repair_reads_back_each_changed_cell(self):
         config, records = self.fixture()
         original = sample_workbook(sales_value='999')

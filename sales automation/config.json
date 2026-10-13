@@ -13,7 +13,7 @@
     "wilder@lccollc.com"
   ],
   "timezone": "America/Los_Angeles",
-  "run_hour": 8,
+  "run_time": "07:45",
   "source_repository": "AsefiAb/salesautomation",
   "workbook_sales_rounding": "whole_dollars",
   "labor_source": "TCP wage estimate",
