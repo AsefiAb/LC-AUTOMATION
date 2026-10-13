@@ -90,7 +90,15 @@ dashboard has no report for them: **3356-03 on October 5 and October 7**
 3356-03 at $0 with 0 transactions on October 6, which was written as reported;
 use `repair` with a reviewed source if that store's figures are later corrected.
 Daily catch-up re-reads those two store-days each morning until they leave the
-seven-day window (October 15), which adds a few minutes and no failure. The catch-up covers
+seven-day window (October 15), which adds a few minutes and no failure.
+
+October 13: no scheduled slot started all morning (all slots sat at the top of
+the hour), so the October 12 report was dispatched manually. The first attempt
+stopped because 3356-06 had no Daily Activity Report for October 12; after the
+no-report tolerance above, [run 38458050446](https://github.com/AsefiAb/LC-AUTOMATION/actions/runs/38458050446)
+delivered 17 stores at 12:55 PM Pacific with 3356-06 labeled
+`No Altametrics report for this date` and its October 12 cells left blank for
+the catch-up. The off-peak schedule from 07:47 AM Pacific starts October 14. The catch-up covers
 only the seven dates before the report date, so the whole October 5–11 gap is
 inside the window only for a scheduled success on October 12 or 13; from
 October 14 the window drops one older date per day, and dates outside it produce
