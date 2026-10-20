@@ -103,7 +103,10 @@ def parse_tip_rows(tables):
                 raise ValueError('Gateway Financial View column layout changed')
             value = cells[-2].strip().replace('$', '').replace(',', '')
             if not re.fullmatch(r'\d+(?:\.\d{1,2})?', value):
-                raise ValueError('Gateway tip amount is missing or invalid')
+                # Name the row and show the cell (a dollar amount, never credentials) so the
+                # cause is visible in the run log; the value is still never guessed.
+                shown = cells[-2].strip()[:24] or '(blank)'
+                raise ValueError(f'Gateway tip amount is missing or invalid: {label} = {shown}; row cells {len(cells)}')
             found[label] = Decimal(value)
     if set(found) != set(LABELS):
         raise ValueError('Both Gateway tip lines must be present; blanks are not zero')
@@ -239,7 +242,11 @@ async def collect(dates, *, stores=None, capture_financial=False, diagnostic_fol
                             result.append(evidence)
                             continue
                         stage = 'tip parsing'
-                        result.append({'store': f'{franchise}-{index:02d}', **parse_tip_rows(tables)})
+                        try:
+                            parsed = parse_tip_rows(tables)
+                        except ValueError as exc:
+                            raise ValueError(f'{franchise}-{index:02d}: {exc}') from None
+                        result.append({'store': f'{franchise}-{index:02d}', **parsed})
                     return result
                 except Exception as exc:
                     retryable = transient_report_error(exc, stage)
