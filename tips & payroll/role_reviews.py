@@ -3,7 +3,7 @@ import json
 import os
 from datetime import date
 
-from allocate_tips import MANAGEMENT
+from allocate_tips import CREW, MANAGEMENT
 
 
 def registry():
@@ -26,8 +26,11 @@ def registry():
             raise ValueError('Invalid confirmed reviews')
         periods = {}
         for item in confirmed:
-            if (not isinstance(item, dict) or item.get('geid') not in ids
-                    or item.get('role') not in MANAGEMENT
+            # An owner confirmation may name crew or management for one exact period.
+            if (not isinstance(item, dict) or not isinstance(item.get('geid'), str) or not item['geid'].isdigit()
+                    or item.get('role') not in MANAGEMENT | CREW
+                    # A crew confirmation never clears an open management-title review.
+                    or (item.get('role') in CREW and item['geid'] in ids)
                     or not isinstance(item.get('evidence_ref'), str) or not item['evidence_ref'].strip()
                     or not isinstance(item.get('period'), dict)):
                 raise ValueError('Invalid confirmed management review')
@@ -79,9 +82,10 @@ def apply_role_reviews(payroll):
                 row['tcp_roles'] = list(row['roles'])
                 row['roles'] = [item['role']]
         applied.append({**item, 'tcp_roles': source_roles})
+        effect = 'excluded from tips' if item['role'] in MANAGEMENT else 'eligible for tips'
         payroll.setdefault('warnings', []).append(
             f'GEID {item["geid"]}: owner-confirmed {item["role"]} for this payroll period; '
-            'excluded from tips. TCP source title retained in audit; no TCP record changed.')
+            f'{effect}. TCP source title retained in audit; no TCP record changed.')
     resolved_ids = {item['geid'] for item in applied}
     unresolved = []
     for item in value['unresolved']:

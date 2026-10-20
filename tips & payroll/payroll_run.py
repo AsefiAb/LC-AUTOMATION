@@ -173,7 +173,12 @@ def normalize(report):
                 elif len(assigned_titles) > 1:
                     raise ValueError('conflicting active job titles without a default')
             for row in worked:
-                titles |= roles(row['roles'])
+                try:
+                    titles |= roles(row['roles'])
+                except ValueError:
+                    if eid not in confirmed_roles:
+                        raise
+                    titles.add(confirmed_roles[eid])  # Owner-confirmed role for this exact period.
             if not titles:
                 if worked:
                     raise ValueError('no verified default or worked job title')

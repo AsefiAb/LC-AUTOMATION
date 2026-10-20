@@ -25,9 +25,10 @@ ROLE_NAMES = {
     'co-manager': 'co-manager', 'co manager': 'co-manager', 'co mgr': 'co-manager', 'comanager': 'co-manager',
     'assistant manager': 'assistant manager', 'assistant mgr': 'assistant manager',
     'asst manager': 'assistant manager', 'asst mgr': 'assistant manager',
+    'manager in training': 'manager in training', 'manager trainee': 'manager in training',
 }
 LABELS = {'crew': 'CREW', 'crew member': 'CREW', 'crew leader': 'CREW LEADER', 'manager': 'MANAGER',
-          'co-manager': 'CO-MANAGER', 'assistant manager': 'ASST MGR', 'unassigned': 'UNASSIGNED'}
+          'co-manager': 'CO-MANAGER', 'assistant manager': 'ASST MGR', 'manager in training': 'MGR TRAINEE', 'unassigned': 'UNASSIGNED'}
 FIELDS = ['GEID', 'Payroll ID', 'First Name', 'Last Name', 'Job Title', 'Total Hours', 'Tips', 'Reg Hours', 'OT Hours']
 ALIASES = {'regular hours': 'Reg Hours', 'reg hours': 'Reg Hours', 'overtime hours': 'OT Hours', 'ot hours': 'OT Hours'}
 

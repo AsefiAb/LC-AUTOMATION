@@ -1,3 +1,4 @@
+import unittest.mock
 import copy
 import json
 import os
@@ -92,6 +93,16 @@ class RoleReviewTests(unittest.TestCase):
         self.registry['confirmed'] = [self.confirmation(), self.confirmation()]
         self.assertFalse(self.apply(self.registry)['verified'])
 
+
+    def test_owner_confirmed_crew_or_trainee_without_open_review_is_accepted(self):
+        import json, os, role_reviews
+        period = {'start_date': '2026-10-06', 'end_date': '2026-10-19'}
+        value = {'version': 1, 'unresolved': [], 'confirmed': [
+            {'geid': '6624348', 'role': 'crew member', 'period': period, 'evidence_ref': 'owner'},
+            {'geid': '6624377', 'role': 'manager in training', 'period': period, 'evidence_ref': 'owner'}]}
+        with unittest.mock.patch.dict(os.environ, {'PAYROLL_ROLE_REVIEWS': json.dumps(value)}):
+            self.assertEqual(role_reviews.confirmed_roles_for_period(period),
+                             {'6624348': 'crew member', '6624377': 'manager in training'})
 
 if __name__ == '__main__':
     unittest.main()

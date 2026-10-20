@@ -15,7 +15,7 @@ from pathlib import Path
 
 
 CREW = {"crew", "crew member", "crew leader"}
-MANAGEMENT = {"manager", "co-manager", "assistant manager"}
+MANAGEMENT = {"manager", "co-manager", "assistant manager", "manager in training"}
 
 
 def cents(value, label):
