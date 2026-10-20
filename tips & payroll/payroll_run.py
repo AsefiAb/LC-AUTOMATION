@@ -405,8 +405,11 @@ def main():
             payroll = normalize(report)
             (output / 'payroll-input.json').write_text(json.dumps(payroll, indent=2), encoding='utf-8')
             write_issues(report, payroll, output)
-        except InspectionError:
+        except InspectionError as exc:
             collection_issues.append('TCP collection failed; no complete calculated-hour source is available. Inspect API access and rerun.')
+            # InspectionError messages carry only status codes and TCP's error label, never credentials.
+            collection_errors.append({'source': 'TCP', 'detail': str(exc)})
+            print('TCP: ' + str(exc), file=sys.stderr)
         except (ValueError, KeyError, TypeError):
             collection_issues.append('TCP source validation failed. Review the private TCP audit/native export; hours must not be inferred.')
     tips = None
