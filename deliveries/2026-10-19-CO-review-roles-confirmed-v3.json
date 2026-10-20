@@ -1,1 +1,1 @@
-{"date": "2026-10-19", "status": "sending", "message_sha256": "ebd850df9921b18c561045c59bd5a4d0bf5ca02a6929682ff384d2aab52db3e2", "message_id": "<payroll-review-CO-2026-10-06-2026-10-19-roles-confirmed-v3@caazllc.com>", "run_id": "39468135136"}
+{"date": "2026-10-19", "status": "sent", "message_sha256": "ebd850df9921b18c561045c59bd5a4d0bf5ca02a6929682ff384d2aab52db3e2", "message_id": "<payroll-review-CO-2026-10-06-2026-10-19-roles-confirmed-v3@caazllc.com>", "run_id": "39468135136", "confirmed_at": "2026-10-20T17:43:23.910031+00:00"}
