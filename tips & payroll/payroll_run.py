@@ -335,11 +335,13 @@ def prepare(gateway_data, payroll, output):
     settings = json.loads(settings_text)
     if settings.get('period') != payroll['period']:
         raise ValueError('Refresh ADP exports for the new payroll period before creating import files')
-    for code, _, filename in FILES.values():
+    for code, company, filename in FILES.values():
         value = os.environ.get('ADP_' + code + '_TEMPLATE', '')
         if not value:
             raise ValueError('Missing current ADP template for ' + code)
-        (templates / filename).write_bytes(base64.b64decode(value, validate=True))
+        from review_adp import live_roster
+        raw, _, _ = live_roster(base64.b64decode(value, validate=True), company, code)
+        (templates / filename).write_bytes(raw)
     messages, data, audit = prepare_current(gateway_data, payroll, output, templates, settings)
     verify_stores(data, output)
     if not audit.get('reports_deliverable'):

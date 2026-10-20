@@ -83,6 +83,10 @@ jobs:
           ADP_AZ_TEMPLATE: ${{ secrets.ADP_AZ_TEMPLATE }}
           ADP_TX_TEMPLATE: ${{ secrets.ADP_TX_TEMPLATE }}
           ADP_ROSTER_SETTINGS: ${{ secrets.ADP_ROSTER_SETTINGS }}
+          ADP_CLIENT_ID: ${{ secrets.ADP_CLIENT_ID }}
+          ADP_CLIENT_SECRET: ${{ secrets.ADP_CLIENT_SECRET }}
+          ADP_CERTIFICATE: ${{ secrets.ADP_CERTIFICATE }}
+          ADP_PRIVATE_KEY: ${{ secrets.ADP_PRIVATE_KEY }}
           PAYROLL_ROLE_REVIEWS: ${{ secrets.PAYROLL_ROLE_REVIEWS }}
           GITHUB_TOKEN: ${{ github.token }}
         shell: bash

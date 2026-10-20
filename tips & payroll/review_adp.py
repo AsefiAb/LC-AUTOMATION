@@ -10,8 +10,25 @@ import os
 from adp_roster import FILES, fill_region, validate_import
 
 
+def live_roster(raw, company, code):
+    """Add active ADP workers missing from the last export; returns (raw, notes, added)."""
+    import adp_api
+    if adp_api.missing_secrets():
+        return raw, [], []
+    workers, problem = adp_api.workers_once()
+    if workers is None:
+        return raw, [f'{code}: live ADP roster unavailable ({problem}); CSV uses the last supplied export only.'], []
+    try:
+        raw, added = adp_api.augment_template(raw, company, workers)
+    except adp_api.ADPError as exc:
+        return raw, [f'{code}: live ADP roster could not be merged ({exc}).'], []
+    notes = [f'{code}: live ADP roster added {len(added)} active worker(s) missing from the last export, '
+             'using their ADP file number, legal name and hourly rate.'] if added else []
+    return raw, notes, added
+
+
 def prepare_candidate(prefix, people, dates, output):
-    code, _, filename = FILES[prefix]
+    code, company, filename = FILES[prefix]
     notes = []
     value = os.environ.get('ADP_' + code + '_TEMPLATE', '')
     try:
@@ -29,12 +46,15 @@ def prepare_candidate(prefix, people, dates, output):
         return None, {'ready': False, 'issues': [f'{code}: missing ADP template; CSV could not be created']}
     try:
         raw = base64.b64decode(value, validate=True)
+        raw, roster_notes, added = live_roster(raw, company, code)
+        notes.extend(roster_notes)
         content, audit = fill_region(None, prefix, raw, settings.get('identities', {}).get(code),
                                      settings.get('allow_missing_zero', False), review_people=people)
         audit['import_format'] = validate_import(prefix, filename, content, allow_blank=True)
     except (ValueError, KeyError, TypeError):
         return None, {'ready': False, 'issues': [f'{code}: ADP template/identity validation failed; CSV could not be created']}
     audit['issues'] = notes + audit['issues']
+    audit['adp_added'] = [{k: r[k] for k in ('file_number', 'name', 'rate', 'hire_date')} for r in added]
     audit['period'] = dates
     audit['template_period'] = settings.get('period')
     audit['incomplete'] = True
