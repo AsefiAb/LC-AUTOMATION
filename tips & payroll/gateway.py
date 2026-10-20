@@ -102,7 +102,11 @@ def parse_tip_rows(tables):
             if cells[-1].strip():
                 raise ValueError('Gateway Financial View column layout changed')
             value = cells[-2].strip().replace('$', '').replace(',', '')
-            if not re.fullmatch(r'\d+(?:\.\d{1,2})?', value):
+            # Reversals appear as -4.29 or (4.29); they reduce the store pool as reported.
+            accounting = re.fullmatch(r'\((\d+(?:\.\d{1,2})?)\)', value)
+            if accounting:
+                value = '-' + accounting[1]
+            if not re.fullmatch(r'-?\d+(?:\.\d{1,2})?', value):
                 # Name the row and show the cell (a dollar amount, never credentials) so the
                 # cause is visible in the run log; the value is still never guessed.
                 shown = cells[-2].strip()[:24] or '(blank)'
@@ -110,6 +114,8 @@ def parse_tip_rows(tables):
             found[label] = Decimal(value)
     if set(found) != set(LABELS):
         raise ValueError('Both Gateway tip lines must be present; blanks are not zero')
+    if sum(found.values()) < 0:
+        raise ValueError('Gateway store tip total is negative; review the reversals before payroll')
     return {'instore_tips': f'{found[LABELS[0]]:.2f}', 'prepaid_instore_tips': f'{found[LABELS[1]]:.2f}',
             'total_tips': f'{sum(found.values()):.2f}'}
 
@@ -246,6 +252,10 @@ async def collect(dates, *, stores=None, capture_financial=False, diagnostic_fol
                             parsed = parse_tip_rows(tables)
                         except ValueError as exc:
                             raise ValueError(f'{franchise}-{index:02d}: {exc}') from None
+                        for key in ('instore_tips', 'prepaid_instore_tips'):
+                            if Decimal(parsed[key]) < 0:
+                                print(f'{franchise}-{index:02d}: Gateway {key} is {parsed[key]} (reversal); '
+                                      f'store tip pool is {parsed["total_tips"]}', flush=True)
                         result.append({'store': f'{franchise}-{index:02d}', **parsed})
                     return result
                 except Exception as exc:

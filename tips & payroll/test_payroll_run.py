@@ -38,6 +38,18 @@ class PayrollPipelineTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 gateway.parse_tip_rows(invalid)
 
+    def test_gateway_reversal_lowers_the_store_pool_but_a_negative_total_stops(self):
+        rows = [[gateway.LABELS[0], '$362.50', ''], [gateway.LABELS[1], '-4.29', '']]
+        self.assertEqual(gateway.parse_tip_rows([rows]),
+                         {'instore_tips': '362.50', 'prepaid_instore_tips': '-4.29', 'total_tips': '358.21'})
+        rows[1][1] = '($4.29)'
+        self.assertEqual(gateway.parse_tip_rows([rows])['total_tips'], '358.21')
+        with self.assertRaisesRegex(ValueError, 'total is negative'):
+            gateway.parse_tip_rows([[[gateway.LABELS[0], '1.00', ''], [gateway.LABELS[1], '-4.29', '']]])
+        for bad in ('--4.29', '-', '4.299', 'N/A'):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, 'missing or invalid'):
+                gateway.parse_tip_rows([[[gateway.LABELS[0], '1.00', ''], [gateway.LABELS[1], bad, '']]])
+
     def test_store_workbooks_reconcile_and_combine_manager(self):
         dates = {'start_date': '2026-08-25', 'end_date': '2026-09-07'}
         roster = [{'geid': '101', 'first_name': 'Crew', 'last_name': 'Leader', 'roles': ['crew leader']},
