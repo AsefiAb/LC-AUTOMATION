@@ -37,18 +37,18 @@ class RosterCheckTests(unittest.TestCase):
 
     def test_missing_active_workers_are_inserted_in_name_order_without_touching_rows(self):
         raw = ('!Do not change rows\r\n!CO CODE,BATCH ID,FILE #,BATCH DESCRIPTION,Name,Rate,Reg Hours,O/T Hours,TIP\r\n'
-               'FNC,Wrksh003,10478,,Mohamed Abdelrhman,H 15.1500,1.00,0.00,0.00\r\n'
-               'FNC,Wrksh003,10500,,Angelina Zed,H 15.1500,,,\r\n').encode()
-        workers = [dict(r, hourly_rate='15.15') for r in adp_api.worker_rows(worker('9', 'Jaxx', 'Massie', 'FNC', '010563'))]
+               'FNC,Wrksh003,90901,,Avery Abbott,H 15.1500,1.00,0.00,0.00\r\n'
+               'FNC,Wrksh003,90903,,Angelina Zed,H 15.1500,,,\r\n').encode()
+        workers = [dict(r, hourly_rate='15.15') for r in adp_api.worker_rows(worker('9', 'Quinn', 'Mallory', 'FNC', '090902'))]
         workers += adp_api.worker_rows(worker('8', 'Old', 'Gone', 'FNC', '010999', status='Terminated'))
-        workers += adp_api.worker_rows(worker('7', 'Mohamed', 'Abdelrhman', 'FNC', '010478'))
+        workers += adp_api.worker_rows(worker('7', 'Avery', 'Abbott', 'FNC', '090901'))
         workers += adp_api.worker_rows(worker('6', 'Other', 'Company', 'FND', '000555'))
         new, added = adp_api.augment_template(raw, 'FNC', workers)
-        self.assertEqual([a['file_number'] for a in added], ['10563'])
+        self.assertEqual([a['file_number'] for a in added], ['90902'])
         lines = new.decode().split('\r\n')
-        self.assertEqual(lines[2], 'FNC,Wrksh003,10478,,Mohamed Abdelrhman,H 15.1500,1.00,0.00,0.00')
-        self.assertEqual(lines[3], 'FNC,Wrksh003,10563,,Jaxx Massie,H 15.1500,,,')
-        self.assertEqual(lines[4], 'FNC,Wrksh003,10500,,Angelina Zed,H 15.1500,,,')
+        self.assertEqual(lines[2], 'FNC,Wrksh003,90901,,Avery Abbott,H 15.1500,1.00,0.00,0.00')
+        self.assertEqual(lines[3], 'FNC,Wrksh003,90902,,Quinn Mallory,H 15.1500,,,')
+        self.assertEqual(lines[4], 'FNC,Wrksh003,90903,,Angelina Zed,H 15.1500,,,')
         self.assertEqual(adp_api.augment_template(new, 'FNC', workers)[1], [])
 
 if __name__ == '__main__':

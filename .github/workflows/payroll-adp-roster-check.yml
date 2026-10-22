@@ -35,6 +35,7 @@ jobs:
           ADP_CLIENT_SECRET: ${{ secrets.ADP_CLIENT_SECRET }}
           ADP_CERTIFICATE: ${{ secrets.ADP_CERTIFICATE }}
           ADP_PRIVATE_KEY: ${{ secrets.ADP_PRIVATE_KEY }}
+          PAYROLL_ADP_IDENTITIES: ${{ secrets.PAYROLL_ADP_IDENTITIES }}
           ADP_CO_TEMPLATE: ${{ secrets.ADP_CO_TEMPLATE }}
           ADP_AZ_TEMPLATE: ${{ secrets.ADP_AZ_TEMPLATE }}
           ADP_TX_TEMPLATE: ${{ secrets.ADP_TX_TEMPLATE }}

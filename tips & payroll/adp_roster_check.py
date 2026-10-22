@@ -47,11 +47,13 @@ def names_for(row):
     return keys
 
 
-def compare(workers, templates, payroll):
+def compare(workers, templates, payroll, identities=()):
+    from adp_api import current_workers
+    confirmed = {i['geid'] for i in identities}
     report = {}
     for region, company in REGION_COMPANY.items():
         in_company = [w for w in workers if w['company_code'].upper() == company]
-        live = [w for w in in_company if active(w)]
+        live, _ = current_workers(workers, company)
         live_numbers = {w['file_number'].lstrip('0') for w in live if w['file_number']}
         section = {'adp_workers': len(in_company), 'adp_active': len(live)}
         template = templates.get(region)
@@ -74,7 +76,7 @@ def compare(workers, templates, payroll):
             section['tcp_people'] = len(people)
             section['tcp_not_in_adp'] = sorted(
                 ({'geid': geid, 'name': row['name'], 'store': row['store']}
-                 for geid, row in people.items() if name_key(row['name']) not in adp_names), key=lambda r: r['name'])
+                 for geid, row in people.items() if geid not in confirmed and name_key(row['name']) not in adp_names), key=lambda r: r['name'])
             tcp_names = {name_key(row['name']) for row in people.values()}
             section['adp_active_without_tcp_hours'] = sorted(
                 f"{w['first_name']} {w['last_name']}" for w in live if not names_for(w) & tcp_names)
@@ -95,7 +97,9 @@ def main():
     (output / 'adp-workers.json').write_text(json.dumps(workers, indent=2), encoding='utf-8')
     templates = {region: template_rows(region) for region in REGION_COMPANY}
     payroll = json.loads(Path(args.payroll_input).read_text(encoding='utf-8')) if args.payroll_input else None
-    report = compare(workers, {r: t for r, t in templates.items() if t is not None}, payroll)
+    from adp_identities import load
+    identities, _ = load()
+    report = compare(workers, {r: t for r, t in templates.items() if t is not None}, payroll, identities)
     (output / 'adp-roster-check.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
     with open(output / 'adp-roster-check.csv', 'w', newline='', encoding='utf-8') as handle:
         out = csv.writer(handle)

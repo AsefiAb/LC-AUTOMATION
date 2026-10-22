@@ -20,6 +20,19 @@ def name_key(value):
     return ' '.join(unicodedata.normalize('NFKC', value).casefold().split())
 
 
+def name_forms(value):
+    """name_key of a roster name plus the names ADP itself writes into it.
+
+    An EPI name such as 'Pat Example(Patty Example)' also stands for 'Pat Example'
+    (the name without its parenthesised part) and 'Patty Example' (the alternate
+    name ADP supplies, which fill_region also matches). Never a fuzzy or guessed form.
+    """
+    value = str(value or '')
+    forms = {name_key(value), name_key(re.sub(r'\([^()]*\)', ' ', value))}
+    forms.update(name_key(alias) for alias in re.findall(r'\(([^()]+)\)', value))
+    return {form for form in forms if form}
+
+
 def validate_import(region, filename, raw, *, allow_blank=False):
     """Require a native ADP CSV, never an Excel workbook with a renamed suffix."""
     code, company, expected = FILES[region]
@@ -57,6 +70,9 @@ def fill_region(summary, region, raw, overrides=None, allow_missing_zero=False, 
     template = read_template(raw, company, next(iter(batches)))
     review = review_people is not None
     people = review_people if review else regional_people(summary)[region]
+    # Last name, then first name, so exception lists and notes read alphabetically.
+    people = sorted(people, key=lambda p: (str(p.get('last_name', '')).casefold(),
+                                           str(p.get('first_name', '')).casefold(), str(p.get('geid', ''))))
     def amounts(person):
         if person is None:
             return [''] * 3 if review else ['0.00'] * 3
@@ -157,6 +173,30 @@ def fill_region(summary, region, raw, overrides=None, allow_missing_zero=False, 
                      'output_sha256': hashlib.sha256(content).hexdigest()}
 
 
+def record_roster_notes(detail, settings, code):
+    """Copy one region's live-roster and confirmed-identity notes into its readiness detail.
+
+    payroll_run.prepare supplies settings['roster_notes'][code] =
+    {'roster_notes': [...], 'identity_notes': [...], 'adp_added': [...]}. These
+    optional steps are recorded as warnings only: an unavailable ADP roster or a
+    rejected identity list is visible but never changes readiness or blocks
+    delivery (a person it leaves unmatched is already an issue of fill_region).
+    Never raises.
+    """
+    notes = {'roster_notes': [], 'identity_notes': [], 'adp_added': []}
+    try:
+        extra = (settings.get('roster_notes') or {}).get(code) or {}
+        listed = lambda key: extra.get(key) if isinstance(extra.get(key), list) else []
+        for key in ('roster_notes', 'identity_notes'):
+            notes[key] = [n for n in listed(key) if isinstance(n, str)]
+        notes['adp_added'] = [{k: str(row.get(k, '')) for k in ('file_number', 'name', 'rate', 'hire_date')}
+                              for row in listed('adp_added') if isinstance(row, dict)]
+    except Exception:
+        notes = {'roster_notes': [], 'identity_notes': [], 'adp_added': []}
+    detail.update(notes)
+    detail['warnings'] = notes['roster_notes'] + notes['identity_notes'] + detail['warnings']
+
+
 def build_imports(summary, template_folder, output, settings=None):
     settings = settings or {}
     output.mkdir(parents=True, exist_ok=True)
@@ -174,6 +214,7 @@ def build_imports(summary, template_folder, output, settings=None):
             continue
         content, detail = fill_region(summary, region, source.read_bytes(),
                                      settings.get('identities', {}).get(code), settings.get('allow_missing_zero', False))
+        record_roster_notes(detail, settings, code)
         audit['regions'][code] = detail
         audit['issues'].extend(detail['issues'])
         audit['missing'].extend(detail['missing'])
@@ -197,6 +238,11 @@ def build_imports(summary, template_folder, output, settings=None):
         checks.append(f"Regular hours: {totals['regular_hours']} | Overtime hours: {totals['overtime_hours']} | Tips: ${totals['tips']}")
         if not detail['ready']:
             checks.append('INCOMPLETE: resolve the employee matches on the payroll issues sheet before finalizing payroll.')
+        checks.extend('Live ADP roster note: ' + note for note in detail.get('roster_notes', []))
+        if detail.get('adp_added'):
+            checks.append('Rows added from the live ADP roster (not on the last export): ADP file '
+                          + ', '.join(row['file_number'] for row in detail['adp_added']))
+        checks.extend('Identity note: ' + note for note in detail.get('identity_notes', []))
         checks.append('')
     (output / 'ADP import checks.txt').write_text('\n'.join(checks), encoding='utf-8')
     return audit

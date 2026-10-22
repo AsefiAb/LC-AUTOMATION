@@ -87,6 +87,7 @@ jobs:
           ADP_CLIENT_SECRET: ${{ secrets.ADP_CLIENT_SECRET }}
           ADP_CERTIFICATE: ${{ secrets.ADP_CERTIFICATE }}
           ADP_PRIVATE_KEY: ${{ secrets.ADP_PRIVATE_KEY }}
+          PAYROLL_ADP_IDENTITIES: ${{ secrets.PAYROLL_ADP_IDENTITIES }}
           PAYROLL_ROLE_REVIEWS: ${{ secrets.PAYROLL_ROLE_REVIEWS }}
           GITHUB_TOKEN: ${{ github.token }}
         shell: bash

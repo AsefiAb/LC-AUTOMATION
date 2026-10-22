@@ -335,18 +335,172 @@ def prepare(gateway_data, payroll, output):
     settings = json.loads(settings_text)
     if settings.get('period') != payroll['period']:
         raise ValueError('Refresh ADP exports for the new payroll period before creating import files')
+    from review_adp import identity_overrides, live_roster
+    roster_notes = {}
     for code, company, filename in FILES.values():
         value = os.environ.get('ADP_' + code + '_TEMPLATE', '')
         if not value:
             raise ValueError('Missing current ADP template for ' + code)
-        from review_adp import live_roster
-        raw, _, _ = live_roster(base64.b64decode(value, validate=True), company, code)
+        raw, live_notes, added = live_roster(base64.b64decode(value, validate=True), company, code)
         (templates / filename).write_bytes(raw)
+        overrides, identity_notes = identity_overrides(raw, company, code, settings)
+        settings.setdefault('identities', {})[code] = overrides
+        roster_notes[code] = optional_roster_notes(live_notes, identity_notes, added)
+    # Recorded by build_imports as warnings: visible, but never a readiness change.
+    settings['roster_notes'] = roster_notes
+    log_roster_notes(roster_notes)
     messages, data, audit = prepare_current(gateway_data, payroll, output, templates, settings)
     verify_stores(data, output)
     if not audit.get('reports_deliverable'):
         raise ValueError('Payroll cannot be fully accounted for; inspect private adp-readiness.json')
     return messages, data['summary']
+
+
+def optional_roster_notes(live_notes, identity_notes, added):
+    """Live-roster and confirmed-identity notes for one region, in adp-readiness.json form; never raises."""
+    entry = {'roster_notes': [], 'identity_notes': [], 'adp_added': []}
+    try:
+        entry['roster_notes'] = [str(n) for n in live_notes or []]
+        entry['identity_notes'] = [str(n) for n in identity_notes or []]
+        entry['adp_added'] = [{k: str(row.get(k, '')) for k in ('file_number', 'name', 'rate', 'hire_date')}
+                              for row in added or [] if isinstance(row, dict)]
+    except Exception:
+        pass
+    return entry
+
+
+def log_roster_notes(roster_notes):
+    """Counts only in the Actions log: identity notes carry GEIDs and ADP file numbers."""
+    try:
+        from adp_identities import INVALID
+        invalid = False
+        for code, entry in roster_notes.items():
+            live, identity = entry.get('roster_notes', []), entry.get('identity_notes', [])
+            invalid = invalid or INVALID in identity
+            if live or identity:
+                print(f'{code}: {len(live)} live ADP roster note(s) and {len(identity)} confirmed-identity note(s); '
+                      'see private adp-readiness.json and ADP import checks.txt')
+        if invalid:
+            print(INVALID)
+    except Exception:
+        pass
+
+
+def step_summary(line):
+    """Append one line to the GitHub Actions job summary when there is one; never raises."""
+    try:
+        path = os.environ.get('GITHUB_STEP_SUMMARY')
+        if path:
+            with open(path, 'a', encoding='utf-8') as file:
+                file.write(line + '\n')
+    except Exception:
+        pass
+
+
+def zero_hours_step(mode, dates, report, output, settings=None):
+    """Build, and in deliver mode send once, the 0-hours termination-review email.
+
+    Independent of payroll readiness; it needs complete TCP punches and the live
+    ADP roster. Confirmed matches are the same ones payroll uses: the
+    PAYROLL_ADP_IDENTITIES secret plus the saved ADP_ROSTER_SETTINGS identities
+    (settings). Any problem is recorded and never stops payroll; this never raises.
+    """
+    folder = output / 'zero-hours'
+    result = {'period': dates, 'status': 'skipped'}
+    notes = []
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        sales = str(FOLDER.parent / 'sales automation')
+        if sales not in sys.path:
+            sys.path.insert(0, sales)
+        import adp_api
+        from adp_identities import merged
+        from zero_hours_notice import build_message, tcp_sources_complete
+        if report is None or not tcp_sources_complete(report):
+            result['reason'] = 'TCP punches are unavailable or incomplete'
+        elif adp_api.missing_secrets():
+            result['reason'] = 'ADP API secrets are missing'
+        else:
+            workers, problem = adp_api.workers_once()
+            if workers is None:
+                result['reason'] = 'ADP roster unavailable: ' + str(problem)
+            else:
+                identities, problems = merged(settings)
+                notes.extend(problems)
+                message, data = build_message(dates, report, workers, identities, notes=notes)
+                (folder / 'zero-hours.eml').write_bytes(message.as_bytes())
+                (folder / 'zero-hours.json').write_text(json.dumps(data, indent=2), encoding='utf-8')
+                result.update(counts={code: {k: len(v) for k, v in lists.items() if isinstance(v, (list, tuple))}
+                                      for code, lists in data.items() if isinstance(lists, dict)},
+                              to=message['To'], cc=message['Cc'], subject=message['Subject'], status='preview')
+                # Scheduled payroll runs only: manual resends or corrections never send this email.
+                if (mode == 'deliver' and os.environ.get('CAAZ_GMAIL_APP_PASS')
+                        and os.environ.get('GITHUB_EVENT_NAME') == 'schedule'):
+                    from daily_report import DeliveryLedger, deliver
+                    ledger = DeliveryLedger(dates['end_date'] + '-zero-hours', namespace='payroll')
+                    result['status'] = deliver(message, ledger, dates['end_date'])
+    except Exception as exc:
+        # These messages are fixed module texts (at most an HTTP status), never credentials.
+        safe = isinstance(exc, ValueError) or type(exc).__name__ in ('ReportError', 'ADPError')
+        result.update(status='failed', reason=type(exc).__name__ + (': ' + str(exc) if safe else ''))
+    try:
+        result['notes'] = [str(n) for n in notes]
+        (folder / 'zero-hours-result.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
+    except Exception as exc:
+        print('Zero-hours result could not be saved (' + type(exc).__name__ + ')')
+    shown = result['status'] + (' (' + str(result['reason']) + ')' if result.get('reason') else '')
+    print('Zero-hours email: ' + shown)
+    if result.get('notes'):
+        # Notes can name employees: only the count goes to the Actions log.
+        print(f"Zero-hours notes: {len(result['notes'])}; see private zero-hours/zero-hours-result.json")
+    if (mode == 'deliver' and os.environ.get('GITHUB_EVENT_NAME') == 'schedule'
+            and result['status'] not in ('sent', 'already sent')):
+        step_summary('0-hours termination email NOT sent: ' + shown + '. Later scheduled slots on this payroll day '
+                     'retry it only while no zero-hours receipt exists; manual runs never send it.')
+    return result
+
+
+def zero_hours_catch_up(dates, output):
+    """Retry the 0-hours email in a scheduled slot after final payroll was already delivered.
+
+    Runs only for scheduled runs and only while no '<end>-zero-hours' receipt
+    exists in any status: 'sent' is done, and 'sending' is an uncertain earlier
+    send that needs a Gmail Sent check, so neither is retried. Returns the step
+    result, or None when nothing was attempted. Never raises.
+    """
+    try:
+        if os.environ.get('GITHUB_EVENT_NAME') != 'schedule':
+            return None
+        sales = str(FOLDER.parent / 'sales automation')
+        if sales not in sys.path:
+            sys.path.insert(0, sales)
+        from daily_report import DeliveryLedger
+        receipt = DeliveryLedger(dates['end_date'] + '-zero-hours', namespace='payroll').read()
+        if receipt is not None:
+            status = receipt.get('status') if isinstance(receipt, dict) else None
+            print('Zero-hours email: receipt already exists (' + str(status) + '); no resend.')
+            if status != 'sent':
+                step_summary('0-hours termination email receipt is ' + repr(status) + ', not sent: check Gmail Sent '
+                             'before manually clearing the zero-hours receipt; it is never resent automatically.')
+            return None
+        report = None
+        if all(os.environ.get(key) for key in ('TCP_CLIENT_ID', 'TCP_CLIENT_SECRET', 'TCP_API_KEY')):
+            try:
+                report = fetch_tcp(dates)
+            except Exception as exc:
+                # zero_hours_step records 'skipped' for missing TCP punches.
+                print('Zero-hours catch-up: TCP read failed (' + type(exc).__name__ + ')')
+        settings, _ = roster_setup(dates)
+    except Exception as exc:
+        print('Zero-hours catch-up skipped (' + type(exc).__name__ + ')')
+        step_summary('0-hours termination email NOT sent: catch-up could not check its receipt ('
+                     + type(exc).__name__ + ').')
+        return None
+    try:
+        return zero_hours_step('deliver', dates, report, output, settings)
+    except Exception as exc:
+        print('Zero-hours catch-up failed (' + type(exc).__name__ + ')')
+        return None
 
 
 def roster_setup(dates):
@@ -391,6 +545,9 @@ def main():
         ledgers = delivery_ledgers(dates['end_date'])
         if all((ledger.read() or {}).get('status') == 'sent' for ledger in ledgers.values()):
             print('Regional emails were already sent; delivery alone does not establish payroll completeness. No resend.')
+            # A 0-hours email that an earlier scheduled slot could not send gets
+            # one more try under its own receipt; payroll itself is never resent.
+            zero_hours_catch_up(dates, output)
             return 2
     required_tcp = ('TCP_CLIENT_ID', 'TCP_CLIENT_SECRET', 'TCP_API_KEY')
     missing = gateway.missing_secrets() + [key for key in required_tcp if not os.environ.get(key)]
@@ -444,6 +601,7 @@ def main():
     (output / 'readiness.json').write_text(json.dumps(status, indent=2), encoding='utf-8')
     print(json.dumps({k: v for k, v in status.items() if k not in ('issues', 'source_reconciliation')}))
     print(f'Source reconciliation ready: {source_ready}. See private readiness.json for details.')
+    zero_hours_step(args.mode, dates, report, output, settings)
     if args.mode == 'preflight':
         return 0 if status['ready'] else 2
     if issues:

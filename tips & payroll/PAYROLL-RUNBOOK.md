@@ -1,5 +1,68 @@
 # Payroll reporting without ADP
 
+## ADP roster, name matches and 0-hours email (October 22, 2026)
+
+**ADP is the master list for the EPI CSVs.** Every payroll run reads the live
+ADP Workforce Now worker roster through the read-only API (`adp_api.py`; secrets
+`ADP_CLIENT_ID`, `ADP_CLIENT_SECRET`, `ADP_CERTIFICATE`, `ADP_PRIVATE_KEY`). Each
+active ADP employee missing from the last supplied regional export is added to
+that region's CSV with the ADP file number, legal name and hourly rate, whether
+or not they have hours, so new hires are never left out. Existing rows, control
+rows, batch and rates are unchanged. ADP returns one row per work assignment; only
+active assignments with a file number count, and when one person has several,
+the most recent hire wins, with the primary assignment breaking ties. Different
+people who share a name are never merged. October 6–19 had 41 new hires with
+hours missing from the CSVs before this change. If the ADP roster cannot be read,
+the CSV falls back to the last supplied export and the run records why.
+
+**Order.** Worksheets, regional sheets, issues lists and the 0-hours email are
+sorted by last name, then first name. CSV rows keep ADP's own export order;
+added rows are placed by ADP's last-name and first-name fields, so multiword
+surnames such as "De Los Rios" sort correctly.
+
+**Confirmed name matches.** TCP and ADP are matched by exact name unless a
+confirmed match exists. Owner-confirmed matches for spelling differences live in
+the private secret `PAYROLL_ADP_IDENTITIES` (`adp_identities.py`, schema in the
+module docstring): TCP GEID, ADP company and file number, both names and an
+evidence note. Matches saved earlier in `ADP_ROSTER_SETTINGS` are honored too. A
+match is applied only when that file number is an active ADP assignment on the
+regional roster and still carries the confirmed ADP name; a match to an older
+assignment follows the person's current one, and a match to a terminated or
+missing record is blocked and reported, never redirected by name. Unconfirmed
+differences stay on the issues sheet and are never guessed. Six spelling
+differences confirmed by the owner on October 22 are recorded only in the
+secret; real names and file numbers are never committed. The permanent fix is to
+enter each employee's ADP file number in TCP's Export Code field; it is
+currently empty for nearly everyone.
+
+**0-hours email.** Each scheduled payroll period sends at most one email
+(`zero_hours_notice.py`) to jeff@caazllc.com (Arizona), caleb@lccollc.com
+(Colorado), wilder@lccollc.com (Texas) and kerry@lccollc.com, cc
+alicia@lccollc.com: "These employees have 0 hours for the last two weeks …
+Please send over termination sheets if they are not employed." The main list,
+by region and last name, is active ADP store employees with no TCP punch in the
+period; any punch counts as worked, even one with zero calculated hours.
+Separate sections, each with its own instruction, cover:
+- people still active in TCP with no punches whose ADP record is terminated or
+  missing;
+- spelling differences between ADP and TCP that still need confirming;
+- several active ADP records sharing one name when fewer of them worked;
+- people with more than one active ADP record, so the extra one can be closed.
+
+People hired during the period, district managers, admin staff and the office
+location are excluded. Nobody with punches and nobody matched by a confirmed
+match is reported as 0 hours. The email needs complete TCP punches and the live
+ADP roster; otherwise it is skipped and the reason is saved in
+`zero-hours/zero-hours-result.json` and the run summary. It never blocks
+payroll. Only scheduled runs send it, once per period (receipt
+`deliveries/<end>-zero-hours.json` on `payroll-delivery-state`); if a scheduled
+slot skips it, later same-day scheduled slots retry until that receipt exists.
+An uncertain send leaves the receipt in `sending` and is never retried
+automatically: check Gmail Sent before clearing it. Manual preflight, preview and
+deliver runs only save a preview `zero-hours.eml`. The first scheduled email is
+for November 3 (October 20–November 2); none was sent for October 6–19, at the
+owner's request.
+
 ## Current behavior (October 6, 2026)
 
 The scheduled job requests an 08:00 Pacific start on alternate Tuesdays. GitHub
