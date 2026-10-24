@@ -1,1 +1,1 @@
-{"date": "2026-10-23", "status": "sending", "message_sha256": "f5752b31cbac0f3a19eca8a9fc3aa6fe5c8b9011bca8c883e94daa19e3abfce9", "message_id": "<sales-failure-2026-10-23@caazllc.com>", "run_id": "40117013531"}
+{"date": "2026-10-23", "status": "sent", "message_sha256": "f5752b31cbac0f3a19eca8a9fc3aa6fe5c8b9011bca8c883e94daa19e3abfce9", "message_id": "<sales-failure-2026-10-23@caazllc.com>", "run_id": "40117013531", "confirmed_at": "2026-10-24T17:40:17.148749+00:00"}
