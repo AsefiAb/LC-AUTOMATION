@@ -126,9 +126,13 @@ async def read_day(page, frame, region, day):
     dropdown = frame.get_by_label('Franchise Number', exact=True)
     if FRANCHISES[region] not in await dropdown.input_value():
         await dropdown.click()
-        option = frame.get_by_role('menuitemcheckbox', name=re.compile(r'0*' + FRANCHISES[region] + r'$'))
-        if await option.count() != 1:
-            raise GatewaySalesError(f'{region}: Gateway login does not offer franchise {FRANCHISES[region]}')
+        options = frame.get_by_role('menuitemcheckbox')
+        await options.first.wait_for(state='visible')
+        names = [(await options.nth(i).inner_text()).strip() for i in range(await options.count())]
+        matches = [i for i, name in enumerate(names) if name.lstrip('0') == FRANCHISES[region]]
+        if len(matches) != 1:
+            raise GatewaySalesError(f'{region}: Gateway login does not offer franchise {FRANCHISES[region]} (offers {names})')
+        option = options.nth(matches[0])
         if await option.get_attribute('aria-checked') != 'true':
             await option.click()
         await dropdown.press('Escape')
