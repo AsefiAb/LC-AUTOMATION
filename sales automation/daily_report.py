@@ -612,6 +612,10 @@ def main():
     catch_up_problem = catch_up()
     if window and not args.preview:
         record_catch_up(day, 'failed' if catch_up_problem else 'complete')
+    elif reviewed and not args.preview:
+        # The reviewed range already filled the earlier dates (repair-gaps runs
+        # first), so later scheduled slots must not retry a blocked portal login.
+        record_catch_up(day, 'reviewed-source')
     if catch_up_problem:
         raise ReportError('Current report completed, but earlier workbook gaps need attention: ' + catch_up_problem)
     update_run_status(complete=True, phase='complete')

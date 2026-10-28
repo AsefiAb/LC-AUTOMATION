@@ -55,7 +55,7 @@ def already_complete(day, repository=None, token=None, opener=urllib.request.url
         receipt = json.loads(base64.b64decode(payload['content']))
     except Exception:
         return False  # Missing receipt (HTTP 404) or any read problem: let the run decide.
-    return receipt.get('status') == 'sent' and receipt.get('catch_up') == 'complete'
+    return receipt.get('status') == 'sent' and receipt.get('catch_up') in ('complete', 'reviewed-source')
 
 
 def main():

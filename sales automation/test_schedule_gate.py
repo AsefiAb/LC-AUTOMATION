@@ -53,6 +53,7 @@ class ScheduleGateTests(unittest.TestCase):
         for receipt, expected in (({'status': 'sent', 'catch_up': 'complete'}, True),
                                   ({'status': 'sent'}, False),
                                   ({'status': 'sent', 'catch_up': 'failed'}, False),
+                                  ({'status': 'sent', 'catch_up': 'reviewed-source'}, True),
                                   ({'status': 'sending', 'catch_up': 'complete'}, False)):
             with self.subTest(receipt=receipt):
                 open_url, calls = self.opener(receipt)

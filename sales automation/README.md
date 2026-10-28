@@ -346,3 +346,14 @@ Tests: `python -m unittest discover -s "sales automation" -p "test_*.py" -v`.
 Prior failed approaches and connection checks are preserved in
 [CONNECTION_HISTORY.md](CONNECTION_HISTORY.md). Do not treat historical setup
 instructions as the current daily configuration.
+
+## Local daily runner (when Altametrics blocks GitHub logins)
+
+`local_daily.py` runs from Windows Task Scheduler at 7:00 AM Pacific (wakes the PC
+from sleep; retries every 30 minutes until noon; a missed morning runs on next
+wake). Each region has its own Chrome profile in `%LOCALAPPDATA%\LC-Automation\sales-chrome`
+so cookies persist. It reads yesterday plus any unsent days (up to a week), saves
+them as the checked reviewed source, and GitHub fills the workbooks and sends the
+email. Setup, once: `python local_daily.py --install`, then `--sign-in`; optionally
+`--save-login CO|AZ|TX` (typed by the owner, DPAPI-encrypted) for automatic re-login.
+Logs: `%LOCALAPPDATA%\LC-Automation\logs`.
