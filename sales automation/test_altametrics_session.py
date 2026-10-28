@@ -55,7 +55,7 @@ class SessionTests(unittest.TestCase):
                     validate_session(value, 'CO')
 
     def test_daily_fresh_login_requires_credentials_even_with_saved_session(self):
-        with patch.dict(os.environ, {'CO_ALTAMETRICS_SESSION': json.dumps(session())}, clear=True):
+        with patch.dict(os.environ, {'CO_ALTAMETRICS_SESSION': json.dumps(session())}, clear=True),                 patch.object(altametrics, 'gateway_reader', return_value=False):
             self.assertEqual(altametrics.missing_secrets(), ['COLORADO_USERNAME', 'COLORADO_PASSWORD', 'AZ_USERNAME', 'AZ_PASSWORD', 'TX_USERNAME', 'TX_PASSWORD'])
 
 

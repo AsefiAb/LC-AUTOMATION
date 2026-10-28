@@ -22,7 +22,17 @@ class AltametricsError(RuntimeError):
     pass
 
 
+def gateway_reader(config=None):
+    """True when daily sales come from Gateway instead of the CAPTCHA-blocked dashboard."""
+    if config is None:
+        config = json.loads((Path(__file__).parent / 'config.json').read_text(encoding='utf-8'))
+    return config.get('sales_reader') == 'Gateway'
+
+
 def missing_secrets():
+    if gateway_reader():
+        import gateway_sales
+        return gateway_sales.missing_secrets()
     if os.environ.get('ALTAMETRICS_AUTH_MODE') in ('local-session', 'local-live'):
         import local_sessions
         local_sessions.require_local_windows()
@@ -441,7 +451,18 @@ async def collect(day, config, allow_missing=False):
             await browser.close()
 
 
+def from_gateway(days, config, allow_missing):
+    import gateway_sales
+    try:
+        return asyncio.run(gateway_sales.collect(days, config, allow_missing))
+    except (gateway_sales.GatewaySalesError, ValueError) as exc:
+        # Same failure type as the dashboard so reporting, catch-up and notices are unchanged.
+        raise AltametricsError('Gateway sales: ' + str(exc)) from None
+
+
 def fetch(day, config, allow_missing=False):
+    if gateway_reader(config):
+        return from_gateway([day], config, allow_missing)
     return asyncio.run(collect(day, config, allow_missing))
 
 
@@ -451,6 +472,8 @@ def fetch_many(days, config, allow_missing=False):
     With allow_missing, a store/date the dashboard reports as having no
     information is returned as an explicit unavailable record, never as zero.
     """
+    if gateway_reader(config):
+        return from_gateway(list(days), config, allow_missing)
     return asyncio.run(collect(list(days), config, allow_missing))
 
 

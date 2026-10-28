@@ -390,10 +390,15 @@ class DailyTests(unittest.TestCase):
 
     def test_altametrics_is_explicit_and_uses_its_own_credentials(self):
         self.assertEqual(CONFIG['source'], 'Altametrics')
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, {}, clear=True), patch.object(daily.altametrics, 'gateway_reader', return_value=False):
             issues = daily.setup_issues(CONFIG)
             self.assertIn('Missing secret: COLORADO_USERNAME', issues)
             self.assertIn('Missing secret: TCP_CLIENT_ID', issues)
+        # With Gateway as the sales reader, its logins replace the dashboard's.
+        with patch.dict(os.environ, {}, clear=True), patch.object(daily.altametrics, 'gateway_reader', return_value=True):
+            issues = daily.setup_issues(CONFIG)
+            self.assertIn('Missing secret: TX_GATEWAY_PASS', issues)
+            self.assertNotIn('Missing secret: COLORADO_USERNAME', issues)
 
     def test_pacific_yesterday_across_dst_and_utc_boundary(self):
         self.assertEqual(daily.report_date(datetime(2026, 9, 17, 2, tzinfo=timezone.utc), 'America/Los_Angeles'), '2026-09-15')

@@ -85,6 +85,12 @@ jobs:
           AZ_PASSWORD: ${{ secrets.AZ_PASSWORD }}
           TX_USERNAME: ${{ secrets.TX_USERNAME }}
           TX_PASSWORD: ${{ secrets.TX_PASSWORD }}
+          CO_GATEWAY_USER: ${{ secrets.CO_GATEWAY_USER }}
+          CO_GATEWAY_PASS: ${{ secrets.CO_GATEWAY_PASS }}
+          AZ_GATEWAY_USER: ${{ secrets.AZ_GATEWAY_USER }}
+          AZ_GATEWAY_PASS: ${{ secrets.AZ_GATEWAY_PASS }}
+          TX_GATEWAY_USER: ${{ secrets.TX_GATEWAY_USER }}
+          TX_GATEWAY_PASS: ${{ secrets.TX_GATEWAY_PASS }}
           REPORT_DATE: ${{ inputs.report_date }}
           END_DATE: ${{ inputs.end_date }}
           SOURCE_SHA256: ${{ inputs.source_sha256 }}

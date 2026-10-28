@@ -17,6 +17,7 @@
   "source_repository": "AsefiAb/salesautomation",
   "workbook_sales_rounding": "whole_dollars",
   "labor_source": "TCP wage estimate",
+  "sales_reader": "Gateway",
   "stores": [
     {
       "store": "3356-01",
