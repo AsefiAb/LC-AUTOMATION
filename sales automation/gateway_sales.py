@@ -126,16 +126,20 @@ async def read_day(page, frame, region, day):
     dropdown = frame.get_by_label('Franchise Number', exact=True)
     if FRANCHISES[region] not in await dropdown.input_value():
         await dropdown.click()
-        options = frame.get_by_role('menuitemcheckbox')
+        # Single-franchise logins show a plain option list; multi-franchise ones use checkboxes.
+        options = frame.get_by_role('option').or_(frame.get_by_role('menuitemcheckbox'))
         await options.first.wait_for(state='visible')
         names = [(await options.nth(i).inner_text()).strip() for i in range(await options.count())]
         matches = [i for i, name in enumerate(names) if name.lstrip('0') == FRANCHISES[region]]
         if len(matches) != 1:
             raise GatewaySalesError(f'{region}: Gateway login does not offer franchise {FRANCHISES[region]} (offers {names})')
         option = options.nth(matches[0])
-        if await option.get_attribute('aria-checked') != 'true':
+        if await option.get_attribute('aria-checked') != 'true' and await option.get_attribute('aria-selected') != 'true':
             await option.click()
-        await dropdown.press('Escape')
+        if await options.first.is_visible():
+            await dropdown.press('Escape')
+        if FRANCHISES[region] not in await dropdown.input_value():
+            raise GatewaySalesError(f'{region}: Gateway did not keep franchise {FRANCHISES[region]} selected')
     await frame.get_by_role('button', name=re.compile('View report', re.I)).click()
     problem = None
     for _ in range(90):
