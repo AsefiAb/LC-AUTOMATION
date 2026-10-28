@@ -164,7 +164,18 @@ async def collect(days, config, allow_missing=False):
                     print(f'{region}: Gateway Franchise Sales Roll-up opened', flush=True)
                     records = []
                     for day in days:
-                        rows = records_for(region, day, await read_day(page, frame, region, day), config, allow_missing)
+                        try:
+                            stores = await read_day(page, frame, region, day)
+                        except Exception as exc:
+                            folder = Path(__file__).parent / 'reports' / 'gateway-check'
+                            folder.mkdir(parents=True, exist_ok=True)
+                            try:
+                                await page.screenshot(path=str(folder / f'{region}-{day}.png'))
+                            except Exception:
+                                pass
+                            detail = str(exc).splitlines()[0][:200] if str(exc) else type(exc).__name__
+                            raise GatewaySalesError(f'{region} {day}: {detail}') from None
+                        rows = records_for(region, day, stores, config, allow_missing)
                         folder = Path(__file__).parent / 'reports' / 'source-snapshots' / day
                         folder.mkdir(parents=True, exist_ok=True)
                         (folder / (region + '-gateway.json')).write_text(json.dumps(rows, indent=2), encoding='utf-8')
