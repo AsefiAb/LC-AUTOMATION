@@ -373,7 +373,29 @@ def check_email_login():
     print('Gmail authentication confirmed; no email sent', flush=True)
 
 
-def run(day, config, preview=False):
+def reviewed_day(path, sha256, day, config):
+    """Rows for one report date from an owner-reviewed capture (manual runs only).
+
+    Used when Altametrics blocks the automated login: the owner signs in and the
+    captured Product Net and transactions are checked exactly as for workbook
+    repairs (digest, schema, every store and date). The capture must cover all
+    three regions so the email is never partial.
+    """
+    from repair_workbooks import reviewed_source
+    payload = json.loads(Path(path).read_text(encoding='utf-8'))
+    selected, by_day, payload = reviewed_source(path, sha256, payload.get('start'), payload.get('end'), config)
+    if {b['region'] for b in selected['workbooks']} != {b['region'] for b in config['workbooks']}:
+        raise ReportError('A reviewed source for the daily email must cover every region.')
+    if day not in by_day:
+        raise ReportError('The reviewed source does not cover this report date.')
+    unavailable = [dict(item) for item in payload.get('unavailable', []) if item['date'] == day]
+    rows = [{**row, 'labor_pct': None, 'total_hours': None, 'source_labor_pct': None,
+             'labor_status': 'unverified_zero' if Decimal(row['sales']) else 'zero_sales',
+             'labor_source': 'Owner-reviewed Altametrics capture'} for row in by_day[day]]
+    return rows, unavailable
+
+
+def run(day, config, preview=False, reviewed=None):
     update_run_status(phase='current report', report_date=day)
     issues = setup_issues(config, require_email=not preview)
     if issues:
@@ -393,7 +415,11 @@ def run(day, config, preview=False):
         update_run_status(phase='source reports')
         # A store whose dashboard states it has no report for the date is listed
         # in the email and keeps blank workbook cells; it never blocks the others.
-        rows, unavailable = altametrics.validate_partial(day, altametrics.fetch(day, config, allow_missing=True), config)
+        if reviewed:
+            rows, unavailable = reviewed_day(reviewed[0], reviewed[1], day, config)
+            print('Using the owner-reviewed Altametrics capture for ' + day + '.', flush=True)
+        else:
+            rows, unavailable = altametrics.validate_partial(day, altametrics.fetch(day, config, allow_missing=True), config)
         if unavailable:
             update_run_status(unavailable_stores=[item['store'] for item in unavailable])
             print('No Altametrics report for ' + ', '.join(item['store'] for item in unavailable)
@@ -474,6 +500,8 @@ def main():
     parser.add_argument('--preview', action='store_true')
     parser.add_argument('--schedule-gate', action='store_true')
     parser.add_argument('--catch-up-days', type=int, default=0)
+    parser.add_argument('--source-records', help='Owner-reviewed capture JSON (manual runs only)')
+    parser.add_argument('--source-sha256', help='Exact SHA-256 of the reviewed capture file')
     args = parser.parse_args()
     config = json.loads((FOLDER / 'config.json').read_text())
     now = datetime.now(timezone.utc)
@@ -490,6 +518,11 @@ def main():
         raise ReportError('Catch-up window must be between 0 and 14 days.')
     if args.catch_up_days and (args.preview or args.preflight):
         raise ReportError('Preview/preflight cannot perform live workbook catch-up.')
+    reviewed = None
+    if args.source_records or args.source_sha256:
+        if not (args.source_records and args.source_sha256) or args.preflight or args.catch_up_days:
+            raise ReportError('A reviewed source needs both its file and digest, and only for a manual preview or delivery.')
+        reviewed = (args.source_records, args.source_sha256)
     if args.preflight:
         issues = setup_issues(config)
         if os.environ.get('CAAZ_GMAIL_APP_PASS'):
@@ -570,7 +603,7 @@ def main():
     # login attempt per region instead of repeating it for the catch-up window,
     # and an already-delivered date still lets later slots recover older gaps.
     try:
-        run(day, config, args.preview)
+        run(day, config, args.preview, reviewed)
     except altametrics.AltametricsError:
         raise  # The same portal block would stop the catch-up logins too.
     except Exception:

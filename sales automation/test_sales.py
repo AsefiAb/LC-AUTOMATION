@@ -254,6 +254,35 @@ class NoReportStoreTests(unittest.TestCase):
         self.assertNotIn('No Altametrics report', body)
 
 
+class ReviewedDeliveryTests(unittest.TestCase):
+    def test_daily_email_can_use_an_owner_reviewed_capture_without_logging_in(self):
+        import hashlib
+        day = '2026-10-26'
+        records = [{'date': day, 'store': s['store'], 'sales': '1000.00', 'transactions': 50} for s in CONFIG['stores']]
+        payload = {'schema_version': 1, 'start': '2026-10-22', 'end': day, 'regions': ['CO', 'TX', 'AZ'],
+                   'provenance': {'system': 'Altametrics', 'report': 'Daily Activity Report', 'sales_metric': 'Product Net',
+                                  'transactions_metric': 'Actual Total transactions', 'method': 'authenticated_browser_review',
+                                  'observed_at': '2026-10-27T20:00:00Z', 'reviewed_by': 'test', 'evidence': ['capture.json']},
+                   'records': records + [{'date': d, 'store': s['store'], 'sales': '1.00', 'transactions': 1}
+                                         for d in ('2026-10-22', '2026-10-23', '2026-10-24', '2026-10-25') for s in CONFIG['stores']]}
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'reviewed.json'
+            content = json.dumps(payload).encode()
+            path.write_bytes(content)
+            digest = hashlib.sha256(content).hexdigest()
+            with patch('repair_workbooks.dates_between', return_value=['2026-10-22', '2026-10-23', '2026-10-24', '2026-10-25', day]),                     patch.object(daily.altametrics, 'fetch') as fetch:
+                rows, unavailable = daily.reviewed_day(str(path), digest, day, CONFIG)
+                fetch.assert_not_called()
+            self.assertEqual(len(rows), 18)
+            self.assertTrue(all(r['report_date'] == day and r['sales'] == '1000.00' for r in rows))
+            self.assertEqual(unavailable, [])
+            with patch('repair_workbooks.dates_between', return_value=['2026-10-22', '2026-10-23', '2026-10-24', '2026-10-25', day]):
+                with self.assertRaises(ValueError):
+                    daily.reviewed_day(str(path), '0' * 64, day, CONFIG)  # Digest must match the exact bytes.
+                with self.assertRaisesRegex(daily.ReportError, 'does not cover'):
+                    daily.reviewed_day(str(path), digest, '2026-10-21', CONFIG)
+
+
 class WorkbookTests(unittest.TestCase):
     rows = [{'store': '3356-01', 'sales': '1234.56', 'transactions': 200}]
 

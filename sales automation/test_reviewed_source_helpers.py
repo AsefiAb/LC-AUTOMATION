@@ -113,8 +113,12 @@ class BuildTests(unittest.TestCase):
             build_reviewed_source.dispatch(secrets, 'repair-gaps', '2026-10-06', '2026-10-11', '0' * 64)
             self.assertEqual(post.call_args.kwargs['json']['inputs'],
                              {'report_date': '2026-10-06', 'end_date': '2026-10-11', 'mode': 'repair-gaps', 'source_sha256': '0' * 64})
-        with self.assertRaises(ValueError):
+        with patch.object(build_reviewed_source.requests, 'post', return_value=Mock(status_code=204)) as post:
             build_reviewed_source.dispatch(secrets, 'deliver', '2026-10-06', '2026-10-11', '0' * 64)
+            # The daily email covers the last date of the reviewed range, never the first.
+            self.assertEqual(post.call_args.kwargs['json']['inputs']['report_date'], '2026-10-11')
+        with self.assertRaises(ValueError):
+            build_reviewed_source.dispatch(secrets, 'preflight', '2026-10-06', '2026-10-11', '0' * 64)
         with patch.object(build_reviewed_source.requests, 'post', return_value=Mock(status_code=422)):
             with self.assertRaisesRegex(RuntimeError, 'HTTP 422'):
                 build_reviewed_source.dispatch(secrets, 'repair-gaps-preview', '2026-10-06', '2026-10-11', '0' * 64)

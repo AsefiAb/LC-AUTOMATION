@@ -164,7 +164,7 @@ class WorkbookRecoveryTests(unittest.TestCase):
                 with self.assertRaisesRegex(daily_report.ReportError, 'Current report completed'):
                     daily_report.main()
                 self.assertEqual(repair.call_args.args[:2], ('2026-09-09', '2026-09-15'))
-                run.assert_called_once_with('2026-09-16', config, False)
+                run.assert_called_once_with('2026-09-16', config, False, None)
 
     def test_blocked_current_report_stops_before_a_second_catch_up_login(self):
         config, _ = self.fixture()
@@ -188,7 +188,7 @@ class WorkbookRecoveryTests(unittest.TestCase):
                     patch.object(repair_workbooks, 'repair', return_value={'complete': True}) as repair, \
                     patch.object(daily_report, 'run') as run:
                 self.assertEqual(daily_report.main(), 0)
-                run.assert_called_once_with('2026-09-16', config, False)
+                run.assert_called_once_with('2026-09-16', config, False, None)
                 self.assertEqual(repair.call_args.args[:2], ('2026-09-09', '2026-09-15'))
                 self.assertTrue(repair.call_args.kwargs['gaps_only'])
 

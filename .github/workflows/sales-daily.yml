@@ -33,7 +33,7 @@ on:
         required: false
         type: string
       source_sha256:
-        description: Optional exact digest of reviewed browser JSON in SALES_REPAIR_SOURCE_JSON secret (repair modes only)
+        description: Optional exact digest of the owner-reviewed capture in SALES_REPAIR_SOURCE_JSON (repair, or manual preview/deliver when Altametrics blocks the login)
         required: false
         type: string
 permissions:
@@ -105,7 +105,9 @@ jobs:
           args=()
           case "$MODE" in
             repair*) ;;
-            *) if [ -n "$SOURCE_SHA256" ]; then echo 'Reviewed source is supported only in repair modes.'; exit 1; fi ;;
+            preview|deliver)
+              if [ -n "$SOURCE_SHA256" ] && [ "$EVENT_NAME" != workflow_dispatch ]; then echo 'Reviewed source is for manual runs only.'; exit 1; fi ;;
+            *) if [ -n "$SOURCE_SHA256" ]; then echo 'Reviewed source is supported only in repair, preview and deliver modes.'; exit 1; fi ;;
           esac
           if [ -n "$REPORT_DATE" ]; then args+=(--date "$REPORT_DATE"); fi
           case "$MODE" in
@@ -135,6 +137,17 @@ jobs:
               ;;
             *) exit 1 ;;
           esac
+          if [ -n "$SOURCE_SHA256" ]; then
+            python - <<'PY'
+          import os
+          from pathlib import Path
+          content = os.environ.get('SALES_REPAIR_SOURCE_JSON', '')
+          if not content:
+              raise SystemExit('Missing encrypted reviewed source secret.')
+          (Path(os.environ['RUNNER_TEMP']) / 'sales-reviewed-source.json').write_bytes(content.encode('utf-8'))
+          PY
+            args+=(--source-records "$RUNNER_TEMP/sales-reviewed-source.json" --source-sha256 "$SOURCE_SHA256")
+          fi
           python 'sales automation/daily_report.py' "${args[@]}"
       - name: Notify owner if scheduled reporting is incomplete
         if: failure() && github.event_name == 'schedule' && vars.SALES_AUTOMATION_ENABLED == 'true'

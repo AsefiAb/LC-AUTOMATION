@@ -19,7 +19,7 @@ from review_sales_source import capture_path, dates_between
 
 FOLDER = Path(__file__).resolve().parent
 REGIONS = ('CO', 'TX', 'AZ')
-DISPATCH_MODES = ('repair-gaps-preview', 'repair-gaps', 'repair-preview', 'repair')
+DISPATCH_MODES = ('repair-gaps-preview', 'repair-gaps', 'repair-preview', 'repair', 'preview', 'deliver')
 SECRET_LIMIT = 48 * 1024  # GitHub Actions secrets hold at most 48 KB.
 
 
@@ -72,8 +72,9 @@ def dispatch(secrets, mode, start, end, digest):
         raise ValueError('Unsupported dispatch mode')
     response = requests.post(secrets.url + '/actions/workflows/sales-daily.yml/dispatches',
         headers=secrets.headers, timeout=30,
-        json={'ref': 'main', 'inputs': {'report_date': start, 'end_date': end,
-                                        'mode': mode, 'source_sha256': digest}})
+        # A daily email always covers the last date of the reviewed range.
+        json={'ref': 'main', 'inputs': {'report_date': end if mode in ('preview', 'deliver') else start,
+                                        'end_date': end, 'mode': mode, 'source_sha256': digest}})
     if response.status_code != 204:
         raise RuntimeError('GitHub did not accept the workflow dispatch (HTTP ' + str(response.status_code) + ')')
 
