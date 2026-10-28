@@ -178,15 +178,19 @@ async def signed_in_page(playwright, region):
     log(f'{region}: sign in to {NAMES[region]} in the window that opened (waiting {SIGN_IN_WAIT // 60} minutes)')
     deadline = time.monotonic() + SIGN_IN_WAIT
     while time.monotonic() < deadline:
-        if page.is_closed():
+        # Signing in can open the dashboard in a new tab and close the first one.
+        pages = [candidate for candidate in context.pages if not candidate.is_closed()]
+        if not pages:
             break
-        await banner(page, f'LC Automation: please sign in to {NAMES[region]} here. Daily sales continues by itself.')
-        try:
-            await altametrics.verify_account_region(page, region)
-            log(f'{region}: owner signed in')
-            return context, page
-        except Exception:
-            await asyncio.sleep(3)
+        for candidate in pages:
+            try:
+                await altametrics.verify_account_region(candidate, region)
+                candidate.set_default_timeout(30000)
+                log(f'{region}: owner signed in')
+                return context, candidate
+            except Exception:
+                await banner(candidate, f'LC Automation: please sign in to {NAMES[region]} here. Daily sales continues by itself.')
+        await asyncio.sleep(3)
     await context.close()
     raise RuntimeError(f'{region}: not signed in')
 
@@ -218,7 +222,7 @@ async def capture(days, config):
         raise RuntimeError('; '.join(problems))
 
 
-async def first_sign_in():
+async def first_sign_in(regions=REGIONS):
     """Open each profile until the owner signs in, then say whether cookies outlive a restart."""
     from playwright.async_api import async_playwright
     from altametrics_session import alt_host
@@ -235,7 +239,7 @@ async def first_sign_in():
             await context.close()
 
     async with async_playwright() as p:
-        results = await asyncio.gather(*(one(p, region) for region in REGIONS), return_exceptions=True)
+        results = await asyncio.gather(*(one(p, region) for region in regions), return_exceptions=True)
     problems = [str(r) if isinstance(r, RuntimeError) else type(r).__name__ for r in results if isinstance(r, BaseException)]
     if problems:
         raise RuntimeError('; '.join(problems))
@@ -288,10 +292,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--save-login', choices=REGIONS)
     parser.add_argument('--install', action='store_true')
-    parser.add_argument('--sign-in', action='store_true')
+    parser.add_argument('--sign-in', nargs='*', choices=REGIONS, help='Regions to sign in (default: all)')
     args = parser.parse_args()
-    if args.sign_in:
-        return asyncio.run(first_sign_in())
+    if args.sign_in is not None:
+        return asyncio.run(first_sign_in(args.sign_in or REGIONS))
     if args.save_login:
         return save_login(args.save_login)
     if args.install:
