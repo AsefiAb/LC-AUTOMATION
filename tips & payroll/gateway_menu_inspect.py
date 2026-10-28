@@ -35,6 +35,34 @@ async def main(report, store, day):
         if report:
             await page.get_by_text(re.compile(r'^\s*' + re.escape(report) + r'\s*$', re.I)).first.click()
             await page.wait_for_timeout(15000)
+            frame = next((f for f in page.frames if 'paginated-reports.powerbi.com' in f.url), None)
+            if frame and day:
+                shown = __import__('datetime').date.fromisoformat(day).strftime('%m/%d/%Y')
+                for label in ('Start Date', 'End Date', 'Date'):
+                    field = frame.get_by_label(label, exact=True)
+                    if await field.count() == 1:
+                        await field.fill(shown)
+                        await field.press('Tab')
+                for label in ('Franchise Number', 'Franchise Store'):
+                    dropdown = frame.get_by_label(label, exact=True)
+                    if await dropdown.count() == 1:
+                        await dropdown.click()
+                        await page.wait_for_timeout(1500)
+                        options = frame.get_by_role('menuitemcheckbox')
+                        if not await options.count():
+                            options = frame.get_by_role('option')
+                        names = [await options.nth(i).inner_text() for i in range(await options.count())]
+                        print(label, 'options:', names)
+                        for i in range(await options.count()):
+                            if (store and store in names[i]) or not store:
+                                if await options.nth(i).get_attribute('aria-checked') != 'true':
+                                    await options.nth(i).click()
+                                if store:
+                                    break
+                        await dropdown.press('Escape')
+                await page.wait_for_timeout(2000)
+                await frame.get_by_role('button', name=re.compile('View report', re.I)).click()
+                await page.wait_for_timeout(25000)
             await page.screenshot(path=str(out / 'report.png'), full_page=True)
             for i, frame in enumerate(page.frames):
                 try:

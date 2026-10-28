@@ -6,6 +6,14 @@ on:
         description: Optional exact report name to open
         type: string
         required: false
+      day:
+        description: Optional report date YYYY-MM-DD
+        type: string
+        required: false
+      store:
+        description: Optional option text to select (default all)
+        type: string
+        required: false
 permissions:
   contents: read
 jobs:
@@ -25,9 +33,11 @@ jobs:
       - name: List reports without changing business data
         env:
           REPORT: ${{ inputs.report }}
+          DAY: ${{ inputs.day }}
+          STORE: ${{ inputs.store }}
           CO_GATEWAY_USER: ${{ secrets.CO_GATEWAY_USER }}
           CO_GATEWAY_PASS: ${{ secrets.CO_GATEWAY_PASS }}
-        run: python 'tips & payroll/gateway_menu_inspect.py' --report "$REPORT"
+        run: python 'tips & payroll/gateway_menu_inspect.py' --report "$REPORT" --day "$DAY" --store "$STORE"
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
