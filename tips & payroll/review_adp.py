@@ -10,6 +10,39 @@ import os
 from adp_roster import FILES, fill_region, validate_import
 
 
+def current_template(code, company):
+    """The EPI file to fill: built from the live ADP roster, else the last supplied export.
+
+    Returns (raw, notes, added, live). live is True when every current ADP employee
+    came straight from ADP this run, which makes the roster current for the period;
+    added lists the people who were not in the last supplied export. A saved export
+    that cannot be decoded raises ValueError.
+    """
+    import adp_api
+    value = os.environ.get('ADP_' + code + '_TEMPLATE', '')
+    saved = base64.b64decode(value, validate=True) if value else None
+    workers = None if adp_api.missing_secrets() else adp_api.workers_once()[0]
+    if workers:
+        try:
+            raw, rows = adp_api.build_epi(company, workers)
+        except Exception:
+            rows = []
+        if rows:
+            added = rows
+            if saved is not None:
+                import csv, io
+                text = saved.decode('utf-8-sig', 'replace')
+                known = {r[2].lstrip('0') for r in csv.reader(io.StringIO(text)) if len(r) == 9 and r[0] == company}
+                added = [r for r in rows if r['file_number'] not in known]
+            notes = [f'{code}: CSV built from the live ADP roster ({len(rows)} current employees)'
+                     + (f', including {len(added)} not in the last supplied export.' if saved is not None and added else '.')]
+            return raw, notes, added, True
+    if saved is None:
+        return None, [], [], False
+    raw, notes, added = live_roster(saved, company, code)
+    return raw, notes, added, False
+
+
 def live_roster(raw, company, code):
     """Add active ADP workers missing from the last export; returns (raw, notes, added)."""
     import adp_api
@@ -129,14 +162,16 @@ def prepare_candidate(prefix, people, dates, output, rates=None):
         # Without the saved identity mappings, even an exact name may refer to
         # a different person. Fail this candidate, while delivering the reports.
         return None, {'ready': False, 'issues': [f'{code}: invalid ADP identity settings; CSV could not be created']}
-    if settings.get('period') != dates:
+    try:
+        raw, roster_notes, added, live = current_template(code, company)
+    except (ValueError, TypeError):
+        return None, {'ready': False, 'issues': [f'{code}: ADP template/identity validation failed; CSV could not be created']}
+    if raw is None:
+        return None, {'ready': False, 'issues': roster_notes + [f'{code}: missing ADP template; CSV could not be created']}
+    if not live and settings.get('period') != dates:
         notes.append(f'{code}: CSV uses the last supplied ADP roster and batch controls. '
                      'Confirm current employees, file numbers, and batch in ADP; current-period roster is not verified.')
-    if not value:
-        return None, {'ready': False, 'issues': [f'{code}: missing ADP template; CSV could not be created']}
     try:
-        raw = base64.b64decode(value, validate=True)
-        raw, roster_notes, added = live_roster(raw, company, code)
         notes.extend(roster_notes)
         overrides, identity_notes = identity_overrides(raw, company, code, settings)
         notes.extend(identity_notes)

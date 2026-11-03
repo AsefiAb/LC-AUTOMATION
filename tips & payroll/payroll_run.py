@@ -420,15 +420,14 @@ def prepare(gateway_data, payroll, output):
     if not settings_text:
         raise ValueError('Current-period ADP roster settings and exports are required')
     settings = json.loads(settings_text)
-    if settings.get('period') != payroll['period']:
-        raise ValueError('Refresh ADP exports for the new payroll period before creating import files')
-    from review_adp import identity_overrides, live_roster
+    from review_adp import current_template, identity_overrides
     roster_notes = {}
     for code, company, filename in FILES.values():
-        value = os.environ.get('ADP_' + code + '_TEMPLATE', '')
-        if not value:
+        raw, live_notes, added, live = current_template(code, company)
+        if raw is None:
             raise ValueError('Missing current ADP template for ' + code)
-        raw, live_notes, added = live_roster(base64.b64decode(value, validate=True), company, code)
+        if not live and settings.get('period') != payroll['period']:
+            raise ValueError('Refresh ADP exports for the new payroll period before creating import files')
         (templates / filename).write_bytes(raw)
         overrides, identity_notes = identity_overrides(raw, company, code, settings)
         settings.setdefault('identities', {})[code] = overrides
@@ -605,12 +604,22 @@ def roster_setup(dates):
     if not isinstance(settings, dict):
         return {}, ['ADP roster settings are invalid; obtain current-period ADP exports.']
     issues = []
+    if live_roster_available():
+        return settings, issues  # The EPI files are built from the live ADP roster this run.
     if settings.get('period') != dates:
         issues.append('Current-period ADP roster is not verified; EPI candidate retains the last supplied roster and batch controls for review.')
     for region in ('CO', 'AZ', 'TX'):
         if not os.environ.get('ADP_' + region + '_TEMPLATE'):
             issues.append('Missing current ADP export: ' + region)
     return settings, issues
+
+
+def live_roster_available():
+    try:
+        import adp_api
+        return not adp_api.missing_secrets() and bool(adp_api.workers_once()[0])
+    except Exception:
+        return False
 
 
 def main():

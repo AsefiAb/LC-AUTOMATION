@@ -517,18 +517,29 @@ class FinalPayrollNotesTests(unittest.TestCase):
         self.assertNotIn('9099', printed)
         self.assertNotIn('099999', printed)
 
-    def test_rows_added_from_the_live_roster_are_listed(self):
-        rows = workers() + [worker('Juniper', 'Quayle', 'FNC', '099105', hired='2026-10-01', rate='16.50')]
+    def test_import_files_are_built_from_the_live_roster(self):
+        rows = [worker('Quill', 'Ambersong', 'FNC', '099101'), worker('Odessa', 'Brightwater', 'FND', '099201'),
+                worker('Rowan', 'Featherby', 'ZKT', '099301'),
+                worker('Juniper', 'Quayle', 'FNC', '099105', hired='2026-10-01', rate='16.50')]
         audit, checks, printed, output = self.prepare(adp=True, rows=rows)
         az = audit['regions']['AZ']
-        self.assertTrue(audit['ready'])
+        self.assertTrue(audit['ready'], audit['issues'])
+        # Everyone current in ADP is on the file, in ADP's layout; new people are listed.
         self.assertEqual(az['adp_added'], [{'file_number': '99105', 'name': 'Juniper Quayle', 'rate': 'H 16.5000',
                                             'hire_date': '2026-10-01'}])
-        self.assertEqual(len(az['roster_notes']), 1)
-        self.assertIn('AZ: live ADP roster added 1 active worker(s)', az['roster_notes'][0])
-        self.assertIn('Rows added from the live ADP roster (not on the last export): ADP file 99105', checks)
-        self.assertIn(b'FNC,Batch1,99105,,Juniper Quayle,H 16.5000,0.00,0.00,0.00', (output / 'EPIFNC00.CSV').read_bytes())
+        self.assertIn('AZ: CSV built from the live ADP roster (2 current employees), including 1 not in the last '
+                      'supplied export.', az['roster_notes'][0])
+        content = (output / 'EPIFNC00.CSV').read_bytes()
+        self.assertIn(b'FNC,Wrksh003,99105,,Juniper Quayle,H 16.5000,0.00,0.00,0.00', content)
+        self.assertIn(b'FNC,Wrksh003,99101,,Quill Ambersong,H 15.0000,10.00,0.00,', content)
         self.assertNotIn('Juniper', printed)
+
+    def test_person_only_on_an_old_export_is_not_matched_once_adp_is_live(self):
+        # ADP is the master list: a name that matches only a stale saved export row
+        # (ADP now spells it differently) is reported, never paid to the old row.
+        rows = workers() + [worker('Odessa', 'Brightwater', 'FND', '099201')]
+        audit, checks, printed, output = self.prepare(adp=True, rows=rows)
+        self.assertIn('AZ GEID 9001: ADP identity missing or ambiguous', audit['regions']['AZ']['issues'])
 
 
 class BuildImportsNotesTests(unittest.TestCase):

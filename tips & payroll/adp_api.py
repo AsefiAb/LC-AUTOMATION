@@ -209,6 +209,64 @@ def current_workers(workers, company=None):
     return current, older
 
 
+# ADP's own EPI import layout per company, copied from the native exports the
+# owner supplied (columns, earnings codes and widths); only employee rows vary.
+EPI_LAYOUT = {
+    'FND': ('Wrksh001', 'TIP', [
+        '!Column6,Rate,,Rate,,,,80', '!Column7,Reg Hours,,Reg Hours,,,,95',
+        '!Column8,O/T Hours,,O/T Hours,,,,80', '!Column9,TIP,,Earnings 3 Code,Earnings 3 Amount,TIP,,80']),
+    'FNC': ('Wrksh003', 'TIP', [
+        '!Column6,Rate,,Rate,,,,40', '!Column7,Reg Hours,,Reg Hours,,,,80',
+        '!Column8,O/T Hours,,O/T Hours,,,,80', '!Column9,TIP,,Earnings 3 Code,Earnings 3 Amount,TIP,,80']),
+    'ZKT': ('Wrksh003', 'Other Earnings - TIP EARNS', [
+        '!Column6,Rate,,Rate,,,,80', '!Column7,Reg Hours,,Reg Hours,,,,80',
+        '!Column8,O/T Hours,,O/T Hours,,,,80',
+        '!Column9,Other Earnings - TIP EARNS,,Earnings 3 Code,Earnings 3 Amount,T,,0']),
+}
+
+
+def build_epi(company, workers):
+    """A complete EPI import file for every current active ADP employee of company.
+
+    Built from the live ADP roster each run, so nobody is missing and no saved
+    export is needed. One row per active ADP file number, sorted by last then
+    first name, with the ADP file number (no leading zeros, as ADP exports it),
+    legal name and ADP hourly rate; amounts are left for the payroll fill.
+    Returns (raw, rows).
+    """
+    import csv
+    batch, tip, columns = EPI_LAYOUT[company]
+    # Every active assignment with a file number, as ADP's own export lists them:
+    # a rehire still holding an older active record appears under both numbers.
+    seen, people = set(), []
+    for w in workers:
+        number = w['file_number'].lstrip('0')
+        if (is_active(w) and w['company_code'].upper() == company and number.strip()
+                and (w['first_name'] or w['last_name']) and number not in seen):
+            seen.add(number)
+            people.append(w)
+    people.sort(key=lambda w: (sort_key(w['last_name'], w['first_name']), w['file_number']))
+    lines = ['!Do not change rows and column headers preceded by "!".  Only employee data can be modified.',
+             '!CO CODE,BATCH ID,FILE #,BATCH DESCRIPTION,Name,Rate,Reg Hours,O/T Hours,' + tip,
+             '!,,,,,,,,']
+    rows = []
+    for worker in people:
+        number = worker['file_number'].lstrip('0')
+        name = ' '.join(f"{worker['first_name']} {worker['last_name']}".replace(',', ' ').split())
+        try:
+            rate = 'H ' + format(float(worker['hourly_rate']), '.4f') if worker['hourly_rate'] else ''
+        except (ValueError, TypeError):
+            rate = ''
+        buffer = io.StringIO()
+        csv.writer(buffer, lineterminator='').writerow([company, batch, number, '', name, rate, '', '', ''])
+        lines.append(buffer.getvalue())
+        rows.append({'file_number': number, 'name': name, 'rate': rate, 'hire_date': worker['hire_date']})
+    lines += ['!', '!Column1,CO CODE,,CO CODE', '!Column2,BATCH ID,,BATCH ID',
+              '!Column3,FILE #,,FILE #,,,LOCKED,80', '!Column4,BATCH DESCRIPTION,,BATCH DESCRIPTION',
+              '!Column5,Name,,Employee Name,,,,80'] + columns
+    return ('\r\n'.join(lines) + '\r\n').encode('utf-8'), rows
+
+
 def augment_template(raw, company, workers):
     """Insert active ADP workers missing from a native EPI template.
 
