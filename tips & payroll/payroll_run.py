@@ -115,13 +115,18 @@ def normalize(report):
     jobs = {str(r['jobCodeId']): r for r in datasets['jobcodes']['records']}
     assignments = defaultdict(list)
     first, last = report['period']['startDate'], report['period']['stopDate']
-    from role_reviews import confirmed_roles_for_period
-    confirmed_roles = confirmed_roles_for_period({'start_date': first, 'end_date': last})
     for row in datasets['employeejobcodes']['records']:
         start, stop = str(row.get('activePeriodStartDate') or '')[:10], str(row.get('activePeriodStopDate') or '')[:10]
         if start and start > last or stop and stop < first:
             continue
         assignments[str(row['employeeId'])].append(row)
+    # Each person's active TCP staff titles; standing owner confirmations must still match them.
+    tcp_titles = {eid: sorted({(jobs.get(str(a['jobCodeId']), {}).get('description') or '').split(' - ')[0].strip()
+                               for a in rows if a.get('isActive')
+                               and not jobs.get(str(a['jobCodeId']), {}).get('leaveCode')} - {''})
+                  for eid, rows in assignments.items()}
+    from role_reviews import confirmed_roles_for_period
+    confirmed_roles = confirmed_roles_for_period({'start_date': first, 'end_date': last}, tcp_titles)
     catalog = {str(r['employeeId']): dict(r) for r in datasets['employees']['records']}
     by_person = defaultdict(list)
     for row in summary['employees']:
@@ -218,7 +223,8 @@ def normalize(report):
         issues.append('No complete roster was returned')
     from role_reviews import apply_role_reviews
     return apply_role_reviews({'period': {'start_date': first, 'end_date': last}, 'verified': not issues, 'issues': issues,
-            'checks': checks, 'roster': roster, 'employees': employees, 'warnings': warnings})
+            'checks': checks, 'roster': roster, 'employees': employees, 'warnings': warnings,
+            'tcp_titles': tcp_titles})
 
 
 def style(sheet, widths):
@@ -397,6 +403,11 @@ def step_summary(line):
         pass
 
 
+def zero_hours_allowed():
+    return (os.environ.get('GITHUB_EVENT_NAME') == 'schedule'
+            or (os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch' and os.environ.get('ZERO_HOURS_MANUAL_SEND') == 'true'))
+
+
 def zero_hours_step(mode, dates, report, output, settings=None):
     """Build, and in deliver mode send once, the 0-hours termination-review email.
 
@@ -433,9 +444,9 @@ def zero_hours_step(mode, dates, report, output, settings=None):
                 result.update(counts={code: {k: len(v) for k, v in lists.items() if isinstance(v, (list, tuple))}
                                       for code, lists in data.items() if isinstance(lists, dict)},
                               to=message['To'], cc=message['Cc'], subject=message['Subject'], status='preview')
-                # Scheduled payroll runs only: manual resends or corrections never send this email.
-                if (mode == 'deliver' and os.environ.get('CAAZ_GMAIL_APP_PASS')
-                        and os.environ.get('GITHUB_EVENT_NAME') == 'schedule'):
+                # Scheduled payroll runs, or a manual run the owner explicitly asked to send it;
+                # ordinary manual resends or corrections never send this email.
+                if (mode == 'deliver' and os.environ.get('CAAZ_GMAIL_APP_PASS') and zero_hours_allowed()):
                     from daily_report import DeliveryLedger, deliver
                     ledger = DeliveryLedger(dates['end_date'] + '-zero-hours', namespace='payroll')
                     result['status'] = deliver(message, ledger, dates['end_date'])
@@ -453,7 +464,7 @@ def zero_hours_step(mode, dates, report, output, settings=None):
     if result.get('notes'):
         # Notes can name employees: only the count goes to the Actions log.
         print(f"Zero-hours notes: {len(result['notes'])}; see private zero-hours/zero-hours-result.json")
-    if (mode == 'deliver' and os.environ.get('GITHUB_EVENT_NAME') == 'schedule'
+    if (mode == 'deliver' and zero_hours_allowed()
             and result['status'] not in ('sent', 'already sent')):
         step_summary('0-hours termination email NOT sent: ' + shown + '. Later scheduled slots on this payroll day '
                      'retry it only while no zero-hours receipt exists; manual runs never send it.')

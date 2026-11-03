@@ -24,15 +24,28 @@ def registry():
         confirmed = registry.get('confirmed', [])
         if not isinstance(confirmed, list):
             raise ValueError('Invalid confirmed reviews')
-        periods = {}
+        periods, standing = {}, set()
         for item in confirmed:
             # An owner confirmation may name crew or management for one exact period.
             if (not isinstance(item, dict) or not isinstance(item.get('geid'), str) or not item['geid'].isdigit()
                     or item.get('role') not in MANAGEMENT | CREW
                     # A crew confirmation never clears an open management-title review.
                     or (item.get('role') in CREW and item['geid'] in ids)
-                    or not isinstance(item.get('evidence_ref'), str) or not item['evidence_ref'].strip()
-                    or not isinstance(item.get('period'), dict)):
+                    or not isinstance(item.get('evidence_ref'), str) or not item['evidence_ref'].strip()):
+                raise ValueError('Invalid confirmed management review')
+            if 'period' not in item:
+                # Standing confirmation: applies from its start date for as long as
+                # the person's TCP titles stay exactly the ones the owner confirmed.
+                date.fromisoformat(item['from'])
+                titles = item.get('tcp_titles')
+                if (not isinstance(titles, list) or not titles
+                        or not all(isinstance(t, str) and t.strip() for t in titles)):
+                    raise ValueError('Standing confirmation needs the confirmed TCP titles')
+                if item['geid'] in standing:
+                    raise ValueError('Duplicate standing confirmation')
+                standing.add(item['geid'])
+                continue
+            if not isinstance(item.get('period'), dict):
                 raise ValueError('Invalid confirmed management review')
             first = date.fromisoformat(item['period']['start_date'])
             last = date.fromisoformat(item['period']['end_date'])
@@ -47,12 +60,32 @@ def registry():
         raise ValueError('Invalid role-review registry') from exc
 
 
-def confirmed_roles_for_period(period):
+def effective(value, period, titles=None):
+    """Confirmations for this period, and standing ones whose TCP titles have since changed.
+
+    An exact-period confirmation wins. A standing one applies from its start date
+    while the person's current TCP titles (titles: GEID -> titles) equal the
+    confirmed ones; without titles it is not applied.
+    """
+    exact = {item['geid']: item for item in value.get('confirmed', []) if item.get('period') == period}
+    applied, changed = dict(exact), []
+    for item in value.get('confirmed', []):
+        if 'period' in item or item['geid'] in exact or item['from'] > period['start_date']:
+            continue
+        current = sorted((titles or {}).get(item['geid'], []))
+        if current == sorted(item['tcp_titles']):
+            applied[item['geid']] = item
+        elif titles is not None and item['geid'] in titles:
+            changed.append({**item, 'current_titles': current})
+    return applied, changed
+
+
+def confirmed_roles_for_period(period, titles=None):
     try:
         value = registry()
     except ValueError:
         return {}  # apply_role_reviews adds the global configuration blocker.
-    return {item['geid']: item['role'] for item in value.get('confirmed', []) if item['period'] == period}
+    return {geid: item['role'] for geid, item in effective(value, period, titles)[0].items()}
 
 
 def apply_role_reviews(payroll):
@@ -70,8 +103,16 @@ def apply_role_reviews(payroll):
         return payroll
     people = {str(p['geid']): p for p in payroll['roster']}
     applied = []
-    for item in value.get('confirmed', []):
-        if item['period'] != payroll['period'] or item['geid'] not in people:
+    confirmations, changed = effective(value, payroll['period'], payroll.get('tcp_titles'))
+    for item in changed:
+        if item['geid'] in people:
+            payroll['issues'].append(
+                f'GEID {item["geid"]}: TCP titles changed since the owner confirmed {item["role"]} '
+                f'({", ".join(item["tcp_titles"])} -> {", ".join(item["current_titles"]) or "none"}); '
+                'confirm the role again before allocating tips.')
+            payroll['verified'] = False
+    for item in confirmations.values():
+        if item['geid'] not in people:
             continue
         person = people[item['geid']]
         source_roles = list(person['roles'])
@@ -84,7 +125,8 @@ def apply_role_reviews(payroll):
         applied.append({**item, 'tcp_roles': source_roles})
         effect = 'excluded from tips' if item['role'] in MANAGEMENT else 'eligible for tips'
         payroll.setdefault('warnings', []).append(
-            f'GEID {item["geid"]}: owner-confirmed {item["role"]} for this payroll period; '
+            f'GEID {item["geid"]}: owner-confirmed {item["role"]}'
+            f'{" for this payroll period" if "period" in item else " (standing; TCP titles unchanged)"}; '
             f'{effect}. TCP source title retained in audit; no TCP record changed.')
     resolved_ids = {item['geid'] for item in applied}
     unresolved = []

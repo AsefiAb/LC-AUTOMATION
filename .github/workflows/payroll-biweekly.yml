@@ -28,6 +28,10 @@ on:
         description: Optional explicit review correction slug (e.g. tcp-hours-v2); blank keeps existing receipts
         type: string
         default: ''
+      send_zero_hours:
+        description: Also send this period's 0-hours email (owner-requested; still at most once per period)
+        type: boolean
+        default: false
 permissions:
   contents: write
 concurrency:
@@ -68,6 +72,7 @@ jobs:
           END_DATE: ${{ inputs.end_date }}
           MODE: ${{ inputs.mode || (vars.PAYROLL_AUTOMATION_ENABLED == 'true' && 'deliver' || 'preflight') }}
           REVIEW_REVISION: ${{ inputs.review_revision }}
+          ZERO_HOURS_MANUAL_SEND: ${{ inputs.send_zero_hours && 'true' || '' }}
           TCP_CLIENT_ID: ${{ secrets.TCP_CLIENT_ID }}
           TCP_CLIENT_SECRET: ${{ secrets.TCP_CLIENT_SECRET }}
           TCP_API_KEY: ${{ secrets.TCP_API_KEY }}

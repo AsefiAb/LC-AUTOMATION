@@ -94,6 +94,24 @@ class RoleReviewTests(unittest.TestCase):
         self.assertFalse(self.apply(self.registry)['verified'])
 
 
+    def test_standing_confirmation_carries_over_until_tcp_titles_change(self):
+        registry = {**self.registry, 'confirmed': [
+            {'geid': '123', 'role': 'co-manager', 'from': '2026-09-22', 'tcp_titles': ['Co-Manager', 'Crew Member'],
+             'evidence_ref': 'owner chat'}]}
+        self.payroll['tcp_titles'] = {'123': ['Crew Member', 'Co-Manager']}
+        result = self.apply(registry)
+        self.assertTrue(result['verified'], result['issues'])
+        self.assertEqual(result['roster'][0]['roles'], ['co-manager'])
+        # A promotion or other title change stops the carry-over and asks again.
+        self.payroll['tcp_titles'] = {'123': ['Manager']}
+        result = self.apply(registry)
+        self.assertFalse(result['verified'])
+        self.assertTrue(any('TCP titles changed' in issue for issue in result['issues']))
+        # Never applied before its start date.
+        self.payroll['tcp_titles'] = {'123': ['Co-Manager', 'Crew Member']}
+        result = self.apply({**registry, 'confirmed': [{**registry['confirmed'][0], 'from': '2026-10-06'}]})
+        self.assertFalse(result['verified'])
+
     def test_owner_confirmed_crew_or_trainee_without_open_review_is_accepted(self):
         import json, os, role_reviews
         period = {'start_date': '2026-10-06', 'end_date': '2026-10-19'}
