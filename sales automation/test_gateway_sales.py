@@ -21,6 +21,12 @@ class RollupTests(unittest.TestCase):
         self.assertEqual(records[0], {'store': '3910-01', 'date': '2026-10-26', 'sales': '1000.50',
                                       'transactions': 80, 'labor_pct': '0.00'})
 
+    def test_single_digit_month_and_day_are_read(self):
+        text = report(day='11/1/2026')
+        self.assertEqual(len(gateway_sales.parse_rollup(text, 'TX', '2026-11-01')), 2)
+        with self.assertRaises(ValueError):
+            gateway_sales.parse_rollup(text, 'TX', '2026-01-11')
+
     def test_wrong_date_franchise_or_totals_are_rejected(self):
         for text, region in ((report(day='10/25/2026'), 'TX'), (report(), 'CO'),
                              (report(total=('1,500.51', '120')), 'TX'), (report().replace('Page1 of 1', ''), 'TX')):

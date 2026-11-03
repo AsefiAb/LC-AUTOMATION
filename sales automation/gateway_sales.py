@@ -46,9 +46,10 @@ def money(text):
 def parse_rollup(text, region, day):
     """Store number -> (sales, customers) from the rendered report, with every total checked."""
     franchise = FRANCHISES[region]
-    shown = date.fromisoformat(day).strftime('%m/%d/%Y')
-    header = re.search(r'\bDate\s+(\d{2}/\d{2}/\d{4})\s+Franchise-#\s+(\d+)', text)
-    if not header or header[1] != shown or header[2].lstrip('0') != franchise:
+    # The rendered report drops leading zeros (11/1/2026); compare as dates.
+    header = re.search(r'\bDate\s+(\d{1,2})/(\d{1,2})/(\d{4})\s+Franchise-#\s+(\d+)', text)
+    if (not header or date(int(header[3]), int(header[1]), int(header[2])) != date.fromisoformat(day)
+            or header[4].lstrip('0') != franchise):
         raise ValueError('Gateway report does not show the requested date and franchise')
     if 'Report-Generated:' not in text or not re.search(r'Page\s*1\s*of\s*1\b', text):
         raise ValueError('Gateway report did not finish rendering on one page')
