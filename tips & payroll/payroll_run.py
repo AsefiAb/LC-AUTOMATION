@@ -53,7 +53,7 @@ def fetch_tcp(dates):
     queries = {'locations': {}, 'jobcodes': {}, 'employees': {'includeRoles': 'true'},
                'employeejobcodes': {'includeSuspendedEmployees': 'true', 'includeTerminatedEmployees': 'true'},
                'hours': {'startDate': first, 'stopDate': (date.fromisoformat(last) + timedelta(days=1)).isoformat(),
-                         'includeJobCode': 'true', 'includeRate': 'false', 'includeOverlapping': 'false'},
+                         'includeJobCode': 'true', 'includeRate': 'true', 'includeOverlapping': 'false'},
                'worksegments': {'startDate': first + 'T00:00:00', 'stopDate': last + 'T23:59:59',
                                 'includeSegmentTime': 'timeIn', 'includeEmployeeDefaultLocation': 'true',
                                 'sortByWorkSegmentId': 'true'}}
@@ -93,6 +93,29 @@ def write_issues(report, payroll, output):
         writer.writerow(['GEID', 'Name', 'Store', 'Segment ID', 'Clock in', 'Clock out', 'Issue'])
         for row in rows:
             writer.writerow(["'" + str(v) if str(v).startswith(('=', '+', '-', '@')) else v for v in row])
+
+
+def tcp_rates(report):
+    """GEID -> hourly rate text from TCP: the rate on the person's latest worked shift in the period.
+
+    The owner pays the TCP rate; these replace hourly rates in the ADP import rows.
+    A shift without a positive rate is ignored; people without one keep ADP's rate.
+    """
+    first, last = report['period']['startDate'], report['period']['stopDate']
+    latest = {}
+    for item in report['datasets']['hours']['records']:
+        eid = str(item['employee']['employeeId'])
+        for segment in item.get('segments', []):
+            start = str(segment.get('timeIn') or '')
+            try:
+                rate = Decimal(str(segment.get('rate')))
+            except Exception:
+                continue
+            if not (first <= start[:10] <= last) or not rate.is_finite() or rate <= 0:
+                continue
+            if eid not in latest or start > latest[eid][0]:
+                latest[eid] = (start, rate)
+    return {eid: f'{rate:.4f}' for eid, (_, rate) in latest.items()}
 
 
 ADP_TITLE_ROLES = {'team member': 'crew member', 'crew': 'crew member', 'crew member': 'crew member',
@@ -280,7 +303,8 @@ def normalize(report):
     from role_reviews import apply_role_reviews
     return apply_role_reviews({'period': {'start_date': first, 'end_date': last}, 'verified': not issues, 'issues': issues,
             'checks': checks, 'roster': roster, 'employees': employees, 'warnings': warnings,
-            'tcp_titles': tcp_titles, 'adp_roles': {eid: adp_roles[eid] for eid in adp_used},
+            'tcp_titles': tcp_titles, 'tcp_rates': tcp_rates(report),
+            'adp_roles': {eid: adp_roles[eid] for eid in adp_used},
             'adp_titles': adp_roles})
 
 
@@ -411,6 +435,7 @@ def prepare(gateway_data, payroll, output):
         roster_notes[code] = optional_roster_notes(live_notes, identity_notes, added)
     # Recorded by build_imports as warnings: visible, but never a readiness change.
     settings['roster_notes'] = roster_notes
+    settings['tcp_rates'] = payroll.get('tcp_rates', {})  # The owner pays TCP's hourly rate.
     log_roster_notes(roster_notes)
     messages, data, audit = prepare_current(gateway_data, payroll, output, templates, settings)
     verify_stores(data, output)

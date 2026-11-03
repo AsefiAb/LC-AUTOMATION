@@ -173,6 +173,45 @@ def fill_region(summary, region, raw, overrides=None, allow_missing_zero=False, 
                      'output_sha256': hashlib.sha256(content).hexdigest()}
 
 
+def apply_tcp_rates(content, company, detail, rates):
+    """Set each matched person's hourly rate in the EPI rows to their TCP rate.
+
+    Only rows matched to a TCP person (detail['employees'] geid) with a TCP rate
+    change, and only hourly or blank rates ('H ...' or ''); salary rows keep ADP's
+    value. Control rows, order, names and amounts are unchanged. Returns new content
+    and records the count in detail['tcp_rates'].
+    """
+    by_file = {row['file_number']: rates[row['geid']] for row in detail.get('employees', [])
+               if row.get('geid') and (rates or {}).get(row['geid'])}
+    encoding = 'utf-8-sig' if content.startswith(b'\xef\xbb\xbf') else 'utf-8'
+    try:
+        text = content.decode(encoding)
+    except UnicodeDecodeError:
+        encoding, text = 'cp1252', content.decode('cp1252')
+    lines = text.splitlines(keepends=True)
+    changed = differed = 0
+    for i, line in enumerate(lines):
+        body = line.rstrip('\r\n')
+        if not body.startswith(company + ','):
+            continue
+        row = next(csv.reader([body]))
+        if len(row) != 9 or row[2] not in by_file or not (row[5] == '' or row[5].startswith('H ')):
+            continue
+        new = 'H ' + by_file[row[2]]
+        if row[5] != new:
+            differed += 1
+        changed += 1
+        buffer = io.StringIO(newline='')
+        csv.writer(buffer, lineterminator='').writerow(row[:5] + [new] + row[6:])
+        lines[i] = buffer.getvalue() + line[len(body):]
+    detail['tcp_rates'] = {'rows_set': changed, 'differed_from_adp_export': differed}
+    if changed:
+        detail.setdefault('warnings', []).append(
+            f'{detail.get("region", company)}: hourly rate from TCP for {changed} matched people '
+            f'({differed} differed from the ADP export).')
+    return ''.join(lines).encode(encoding)
+
+
 def record_roster_notes(detail, settings, code):
     """Copy one region's live-roster and confirmed-identity notes into its readiness detail.
 
@@ -214,6 +253,7 @@ def build_imports(summary, template_folder, output, settings=None):
             continue
         content, detail = fill_region(summary, region, source.read_bytes(),
                                      settings.get('identities', {}).get(code), settings.get('allow_missing_zero', False))
+        content = apply_tcp_rates(content, FILES[region][1], detail, settings.get('tcp_rates'))
         record_roster_notes(detail, settings, code)
         audit['regions'][code] = detail
         audit['issues'].extend(detail['issues'])

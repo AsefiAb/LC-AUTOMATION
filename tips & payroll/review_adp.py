@@ -117,7 +117,7 @@ def checked_overrides(raw, company, code, settings):
     return overrides, notes
 
 
-def prepare_candidate(prefix, people, dates, output):
+def prepare_candidate(prefix, people, dates, output, rates=None):
     code, company, filename = FILES[prefix]
     notes = []
     value = os.environ.get('ADP_' + code + '_TEMPLATE', '')
@@ -142,6 +142,8 @@ def prepare_candidate(prefix, people, dates, output):
         notes.extend(identity_notes)
         content, audit = fill_region(None, prefix, raw, overrides,
                                      settings.get('allow_missing_zero', False), review_people=people)
+        from adp_roster import apply_tcp_rates
+        content = apply_tcp_rates(content, company, audit, rates)
         audit['import_format'] = validate_import(prefix, filename, content, allow_blank=True)
     except (ValueError, KeyError, TypeError):
         return None, {'ready': False, 'issues': [f'{code}: ADP template/identity validation failed; CSV could not be created']}

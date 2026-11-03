@@ -234,7 +234,7 @@ def prepare_review(dates, output, issues, payroll=None, report=None, tips=None, 
                 notes.extend(store + ': ' + issue for issue in detail['issues'])
         notes = list(dict.fromkeys(notes))
         regional = combine(regional_rows)
-        csv_filename, csv_audit = prepare_candidate(prefix, regional, dates, output)
+        csv_filename, csv_audit = prepare_candidate(prefix, regional, dates, output, (payroll or {}).get('tcp_rates'))
         csv_audits[code] = csv_audit
         notes.extend(issue_notes(csv_audit))
         issues_filename = f'{code} Payroll issues {label}.xlsx'
