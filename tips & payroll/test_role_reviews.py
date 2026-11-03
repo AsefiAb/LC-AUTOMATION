@@ -122,5 +122,35 @@ class RoleReviewTests(unittest.TestCase):
             self.assertEqual(role_reviews.confirmed_roles_for_period(period),
                              {'9000001': 'crew member', '9000002': 'manager in training'})
 
+class ADPTitleTests(unittest.TestCase):
+    def test_unique_active_adp_title_maps_to_payroll_role(self):
+        import adp_api, payroll_run
+        def worker(oid, first, last, title, status='Active'):
+            return {'associate_oid': oid, 'first_name': first, 'last_name': last, 'job_title': title,
+                    'worker_status': status, 'assignment_status': 'A'}
+        workers = [worker('a', 'Pat', 'Lee', 'ASSISTANT MANAGER'), worker('b', 'Sam', 'Roe', 'TEAM MEMBER'),
+                   worker('c', 'Kim', 'Doe', 'TEAM MEMBER'), worker('d', 'Kim', 'Doe', 'CO-MANAGER'),
+                   worker('e', 'Ana', 'Cruz', 'Manager Trainee', status='Terminated'), worker('f', 'Lou', 'Fox', 'ADMIN')]
+        catalog = {'1': {'firstName': 'Pat', 'lastName': 'Lee'}, '2': {'firstName': 'sam', 'lastName': 'ROE'},
+                   '3': {'firstName': 'Kim', 'lastName': 'Doe'}, '4': {'firstName': 'Ana', 'lastName': 'Cruz'},
+                   '5': {'firstName': 'Lou', 'lastName': 'Fox'}}
+        with patch.object(adp_api, 'missing_secrets', return_value=[]),                 patch.object(adp_api, 'workers_once', return_value=(workers, None)):
+            # Two ADP people sharing a name, a terminated record and an unmapped title give no role.
+            self.assertEqual(payroll_run.adp_roles_by_geid(catalog), {'1': 'assistant manager', '2': 'crew member'})
+        with patch.object(adp_api, 'missing_secrets', return_value=['ADP_CLIENT_ID']):
+            self.assertEqual(payroll_run.adp_roles_by_geid(catalog), {})
+
+    def test_adp_title_resolves_open_review_only_when_it_matches_tcp(self):
+        registry = dict(version=1, unresolved=[dict(geid='123', source_role='co-manager', evidence_ref='report')])
+        base = dict(period={'start_date': '2026-10-20', 'end_date': '2026-11-02'}, verified=True, issues=[],
+                    roster=[dict(geid='123', roles=['co-manager', 'crew member'])],
+                    employees=[dict(employee_id='123', store='3356-07', roles=['co-manager', 'crew member'], total_hours='10.00')])
+        with patch.dict(os.environ, {'PAYROLL_ROLE_REVIEWS': json.dumps(registry)}):
+            result = apply_role_reviews({**copy.deepcopy(base), 'adp_titles': {'123': 'co-manager'}})
+            self.assertTrue(result['verified'], result['issues'])
+            self.assertEqual(result['employees'][0]['roles'], ['co-manager'])
+            result = apply_role_reviews({**copy.deepcopy(base), 'adp_titles': {'123': 'manager'}})
+            self.assertFalse(result['verified'])
+
 if __name__ == '__main__':
     unittest.main()

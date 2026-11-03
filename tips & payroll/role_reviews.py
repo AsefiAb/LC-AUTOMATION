@@ -129,6 +129,32 @@ def apply_role_reviews(payroll):
             f'{" for this payroll period" if "period" in item else " (standing; TCP titles unchanged)"}; '
             f'{effect}. TCP source title retained in audit; no TCP record changed.')
     resolved_ids = {item['geid'] for item in applied}
+    # ADP's job title: applied where the payroll build needed it, and to an open
+    # review when ADP's title is one of the person's TCP titles.
+    adp_titles = payroll.get('adp_titles', {})
+    adp_needed = dict(payroll.get('adp_roles', {}))
+    for item in value['unresolved']:
+        person = people.get(item['geid'])
+        if (person and item['geid'] not in resolved_ids
+                and adp_titles.get(item['geid']) in person['roles']):
+            adp_needed[item['geid']] = adp_titles[item['geid']]
+    for geid, role in sorted(adp_needed.items()):
+        if geid in resolved_ids or geid not in people:
+            continue
+        person = people[geid]
+        source_roles = list(person['roles'])
+        person['tcp_roles'] = source_roles
+        person['roles'] = [role]
+        for row in payroll['employees']:
+            if str(row['employee_id']) == geid:
+                row['tcp_roles'] = list(row['roles'])
+                row['roles'] = [role]
+        applied.append({'geid': geid, 'role': role, 'evidence_ref': 'ADP job title', 'tcp_roles': source_roles})
+        resolved_ids.add(geid)
+        effect = 'excluded from tips' if role in MANAGEMENT else 'eligible for tips'
+        payroll.setdefault('warnings', []).append(
+            f'GEID {geid}: {role} from the ADP job title (TCP: {", ".join(source_roles)}); {effect}. '
+            'No TCP record changed.')
     unresolved = []
     for item in value['unresolved']:
         if item['geid'] in resolved_ids:

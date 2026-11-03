@@ -95,6 +95,43 @@ def write_issues(report, payroll, output):
             writer.writerow(["'" + str(v) if str(v).startswith(('=', '+', '-', '@')) else v for v in row])
 
 
+ADP_TITLE_ROLES = {'team member': 'crew member', 'crew': 'crew member', 'crew member': 'crew member',
+                   'team leader': 'crew leader', 'crew leader': 'crew leader',
+                   'assistant manager': 'assistant manager', 'co-manager': 'co-manager',
+                   'general manager': 'manager', 'manager': 'manager', 'manager trainee': 'manager in training'}
+
+
+def adp_roles_by_geid(catalog):
+    """TCP GEID -> payroll role from ADP job titles, matched by exact unique name.
+
+    Only active ADP assignments count. A name shared by different ADP people, an
+    unmapped title, or one person with conflicting titles gives no ADP role, so
+    the TCP problem stays on the issues list. Returns {} when ADP is unavailable.
+    """
+    try:
+        import adp_api
+        if adp_api.missing_secrets():
+            return {}
+        workers, _ = adp_api.workers_once()
+    except Exception:
+        return {}
+    by_name = defaultdict(lambda: (set(), set()))
+    for worker in workers or []:
+        if not adp_api.is_active(worker):
+            continue
+        key = (adp_api.name_key(worker['first_name']), adp_api.name_key(worker['last_name']))
+        people, found = by_name[key]
+        people.add(worker['associate_oid'])
+        found.add(ADP_TITLE_ROLES.get(adp_api.name_key(worker['job_title'])))
+    result = {}
+    for eid, person in catalog.items():
+        key = (adp_api.name_key(person.get('firstName') or ''), adp_api.name_key(person.get('lastName') or ''))
+        people, found = by_name.get(key, (set(), set()))
+        if len(people) == 1 and len(found) == 1 and None not in found:
+            result[eid] = next(iter(found))
+    return result
+
+
 def normalize(report):
     summary = summarize(report)
     checks = summary['checks']
@@ -136,6 +173,13 @@ def normalize(report):
         eid = str(person['employeeId'])
         if eid in by_person and eid not in catalog:
             catalog[eid] = person
+    # ADP's job title settles a TCP title problem (conflicting titles, an
+    # unrecognized title such as Training, or an open role review); an owner
+    # confirmation still wins. ADP is read once per run and never written.
+    adp_roles = adp_roles_by_geid(catalog)
+    owner_roles = confirmed_roles
+    confirmed_roles = {**adp_roles, **owner_roles}
+    adp_used = set()
     roster, employees, warnings = [], [], []
     for eid, person in sorted(catalog.items()):
         worked = by_person[eid]
@@ -151,7 +195,14 @@ def normalize(report):
             defaults = [a for a in assignments[eid] if a.get('isDefault')]
             for a in defaults:
                 job = jobs.get(str(a['jobCodeId']), {})
-                titles |= roles((job.get('description') or a.get('description') or '').split(' - ')[0])
+                try:
+                    titles |= roles((job.get('description') or a.get('description') or '').split(' - ')[0])
+                except ValueError:
+                    if eid not in confirmed_roles:
+                        raise
+                    titles.add(confirmed_roles[eid])  # Unrecognized default title such as Training.
+                    if eid not in owner_roles:
+                        adp_used.add(eid)
             # Most employees have no default flag. A single distinct active
             # operational title is unambiguous even across multiple stores.
             if not titles:
@@ -170,11 +221,14 @@ def normalize(report):
                     # Multiple management titles share the same non-tip status.
                     # Preserve every title; do not invent a preferred/default job.
                     titles = assigned_titles
-                elif len(assigned_titles) > 1 and eid in confirmed_roles:
-                    # An explicit owner confirmation resolves eligibility for
-                    # this exact period. Retain all TCP titles until the final
-                    # role-review pass saves them and applies the confirmed role.
+                elif len(assigned_titles) > 1 and eid in confirmed_roles and (
+                        eid in owner_roles or confirmed_roles[eid] in assigned_titles):
+                    # An owner confirmation, or ADP's title when it is one of the
+                    # TCP titles, resolves eligibility. Retain all TCP titles until
+                    # the final role-review pass saves them and applies that role.
                     titles = assigned_titles
+                    if eid not in owner_roles:
+                        adp_used.add(eid)
                 elif len(assigned_titles) > 1:
                     raise ValueError('conflicting active job titles without a default')
             for row in worked:
@@ -183,7 +237,9 @@ def normalize(report):
                 except ValueError:
                     if eid not in confirmed_roles:
                         raise
-                    titles.add(confirmed_roles[eid])  # Owner-confirmed role for this exact period.
+                    titles.add(confirmed_roles[eid])  # Owner-confirmed or ADP title for an unrecognized TCP title.
+                    if eid not in owner_roles:
+                        adp_used.add(eid)
             if not titles:
                 if worked:
                     raise ValueError('no verified default or worked job title')
@@ -224,7 +280,8 @@ def normalize(report):
     from role_reviews import apply_role_reviews
     return apply_role_reviews({'period': {'start_date': first, 'end_date': last}, 'verified': not issues, 'issues': issues,
             'checks': checks, 'roster': roster, 'employees': employees, 'warnings': warnings,
-            'tcp_titles': tcp_titles})
+            'tcp_titles': tcp_titles, 'adp_roles': {eid: adp_roles[eid] for eid in adp_used},
+            'adp_titles': adp_roles})
 
 
 def style(sheet, widths):
