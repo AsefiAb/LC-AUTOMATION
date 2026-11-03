@@ -423,7 +423,7 @@ def prepare(gateway_data, payroll, output):
     from review_adp import current_template, identity_overrides
     roster_notes = {}
     for code, company, filename in FILES.values():
-        raw, live_notes, added, live = current_template(code, company)
+        raw, live_notes, added, live = current_template(code, company, payroll['period']['start_date'])
         if raw is None:
             raise ValueError('Missing current ADP template for ' + code)
         if not live and settings.get('period') != payroll['period']:

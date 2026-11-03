@@ -10,7 +10,7 @@ import os
 from adp_roster import FILES, fill_region, validate_import
 
 
-def current_template(code, company):
+def current_template(code, company, period_start=None):
     """The EPI file to fill: built from the live ADP roster, else the last supplied export.
 
     Returns (raw, notes, added, live). live is True when every current ADP employee
@@ -24,7 +24,7 @@ def current_template(code, company):
     workers = None if adp_api.missing_secrets() else adp_api.workers_once()[0]
     if workers:
         try:
-            raw, rows = adp_api.build_epi(company, workers)
+            raw, rows = adp_api.build_epi(company, workers, period_start)
         except Exception:
             rows = []
         if rows:
@@ -163,7 +163,7 @@ def prepare_candidate(prefix, people, dates, output, rates=None):
         # a different person. Fail this candidate, while delivering the reports.
         return None, {'ready': False, 'issues': [f'{code}: invalid ADP identity settings; CSV could not be created']}
     try:
-        raw, roster_notes, added, live = current_template(code, company)
+        raw, roster_notes, added, live = current_template(code, company, dates['start_date'])
     except (ValueError, TypeError):
         return None, {'ready': False, 'issues': [f'{code}: ADP template/identity validation failed; CSV could not be created']}
     if raw is None:

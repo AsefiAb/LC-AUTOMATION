@@ -225,13 +225,15 @@ EPI_LAYOUT = {
 }
 
 
-def build_epi(company, workers):
+def build_epi(company, workers, period_start=None):
     """A complete EPI import file for every current active ADP employee of company.
 
     Built from the live ADP roster each run, so nobody is missing and no saved
     export is needed. One row per active ADP file number, sorted by last then
     first name, with the ADP file number (no leading zeros, as ADP exports it),
     legal name and ADP hourly rate; amounts are left for the payroll fill.
+    Someone terminated on or after period_start is included too, so a person who
+    worked part of the period before leaving still receives final hours and tips.
     Returns (raw, rows).
     """
     import csv
@@ -241,7 +243,8 @@ def build_epi(company, workers):
     seen, people = set(), []
     for w in workers:
         number = w['file_number'].lstrip('0')
-        if (is_active(w) and w['company_code'].upper() == company and number.strip()
+        leaving = bool(period_start and (w.get('termination_date') or '')[:10] >= period_start)
+        if ((is_active(w) or leaving) and w['company_code'].upper() == company and number.strip()
                 and (w['first_name'] or w['last_name']) and number not in seen):
             seen.add(number)
             people.append(w)

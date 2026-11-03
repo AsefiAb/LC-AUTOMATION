@@ -24,5 +24,23 @@ class TCPRateTests(unittest.TestCase):
         self.assertEqual(detail['tcp_rates'], {'rows_set': 2, 'differed_from_adp_export': 2})
 
 
+
+class LiveEPITests(unittest.TestCase):
+    def test_live_file_lists_active_people_and_those_who_left_during_the_period(self):
+        import adp_api
+        from adp_export import read_template
+        def w(first, last, number, status='Active', term=''):
+            return {'associate_oid': 'O' + number, 'first_name': first, 'last_name': last, 'company_code': 'FND',
+                    'file_number': number, 'worker_status': status, 'assignment_status': 'A' if status == 'Active' else 'T',
+                    'termination_date': term, 'hire_date': '2025-01-01', 'hourly_rate': '', 'primary': True}
+        workers = [w('Zed', 'Young', '000003'), w('Amy', 'Bell', '000001'),
+                   w('Left', 'Recently', '000004', 'Terminated', '2026-10-22'),
+                   w('Left', 'Longago', '000005', 'Terminated', '2025-03-01')]
+        raw, rows = adp_api.build_epi('FND', workers, '2026-10-20')
+        self.assertEqual([r['name'] for r in rows], ['Amy Bell', 'Left Recently', 'Zed Young'])
+        self.assertEqual(list(read_template(raw, 'FND', 'Wrksh001')['employees']),
+                         [('FND', '1'), ('FND', '4'), ('FND', '3')])
+        self.assertTrue(raw.endswith(b'!Column9,TIP,,Earnings 3 Code,Earnings 3 Amount,TIP,,80' + bytes([13, 10])))
+
 if __name__ == '__main__':
     unittest.main()
