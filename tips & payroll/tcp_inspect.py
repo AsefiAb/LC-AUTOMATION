@@ -42,7 +42,8 @@ def select(record, fields):
     return {key: record[key] for key in fields.split() if key in record}
 
 
-def project(kind, record):
+def project(kind, record, keep_rate=False):
+    # Pay rates are kept only when payroll asks for them (TCP rate on the ADP import).
     fields = {
         "locations": "id name active",
         "jobcodes": "id jobCodeId description jobClass jobCodeGroup locationName active leaveCode forceUnpaid askTracked1 askTracked2 askTracked3",
@@ -57,7 +58,7 @@ def project(kind, record):
         result["employee"] = project("employees", record.get("employee") or {})
         result["segments"] = []
         for segment in record.get("segments") or []:
-            item = select(segment, "recordId timeIn timeOut hours isLeave comp clockedInStatus")
+            item = select(segment, "recordId timeIn timeOut hours isLeave comp clockedInStatus" + (" rate" if keep_rate else ""))
             item["jobCode"] = project("jobcodes", segment.get("jobCode") or {})
             item["costCode"] = project("costcodes", segment.get("costCode") or {})
             result["segments"].append(item)
@@ -119,7 +120,7 @@ class TCP:
         if company:
             self.headers["X-Tcp-CompanyId"] = company
 
-    def collect(self, kind, params=None):
+    def collect(self, kind, params=None, keep_rate=False):
         records = []
         fingerprints = set()
         for page in range(1, 101):
@@ -138,7 +139,7 @@ class TCP:
             if fingerprint in fingerprints:
                 raise InspectionError("TCP repeated a page; collection is incomplete.")
             fingerprints.add(fingerprint)
-            records.extend(project(kind, row) for row in rows)
+            records.extend(project(kind, row, keep_rate) for row in rows)
             # Continue to an empty page: do not assume the server honors page size.
         raise InspectionError("Page limit reached; collection is incomplete.")
 

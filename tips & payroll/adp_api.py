@@ -240,10 +240,14 @@ def build_epi(company, workers, period_start=None):
     batch, tip, columns = EPI_LAYOUT[company]
     # Every active assignment with a file number, as ADP's own export lists them:
     # a rehire still holding an older active record appears under both numbers.
+    # A closed record is listed only for someone with no active record left here.
+    still_active = {w.get('associate_oid') for w in workers
+                    if is_active(w) and w['company_code'].upper() == company and w.get('associate_oid')}
     seen, people = set(), []
     for w in workers:
         number = w['file_number'].lstrip('0')
-        leaving = bool(period_start and (w.get('termination_date') or '')[:10] >= period_start)
+        leaving = bool(period_start and (w.get('termination_date') or '')[:10] >= period_start
+                       and w.get('associate_oid') not in still_active)
         if ((is_active(w) or leaving) and w['company_code'].upper() == company and number.strip()
                 and (w['first_name'] or w['last_name']) and number not in seen):
             seen.add(number)

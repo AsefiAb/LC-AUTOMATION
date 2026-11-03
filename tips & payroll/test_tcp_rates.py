@@ -30,12 +30,14 @@ class LiveEPITests(unittest.TestCase):
         import adp_api
         from adp_export import read_template
         def w(first, last, number, status='Active', term=''):
+            # Amy Bell's closed record (000009) belongs to the same ADP person as her active one.
             return {'associate_oid': 'O' + number, 'first_name': first, 'last_name': last, 'company_code': 'FND',
                     'file_number': number, 'worker_status': status, 'assignment_status': 'A' if status == 'Active' else 'T',
                     'termination_date': term, 'hire_date': '2025-01-01', 'hourly_rate': '', 'primary': True}
         workers = [w('Zed', 'Young', '000003'), w('Amy', 'Bell', '000001'),
                    w('Left', 'Recently', '000004', 'Terminated', '2026-10-22'),
-                   w('Left', 'Longago', '000005', 'Terminated', '2025-03-01')]
+                   w('Left', 'Longago', '000005', 'Terminated', '2025-03-01'),
+                   {**w('Amy', 'Bell', '000009', 'Terminated', '2026-11-01'), 'associate_oid': 'O000001'}]
         raw, rows = adp_api.build_epi('FND', workers, '2026-10-20')
         self.assertEqual([r['name'] for r in rows], ['Amy Bell', 'Left Recently', 'Zed Young'])
         self.assertEqual(list(read_template(raw, 'FND', 'Wrksh001')['employees']),

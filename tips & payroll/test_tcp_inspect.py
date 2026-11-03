@@ -23,6 +23,9 @@ class InspectionTests(unittest.TestCase):
         self.assertNotIn("authentication", result["employee"])
         self.assertNotIn("rate", result["segments"][0])
         self.assertEqual(result["segments"][0]["hours"]["regular"], "8.00")
+        # Payroll alone asks for the rate, to put TCP's hourly rate on the ADP import.
+        kept = project("hours", {"employee": {"employeeId": 12}, "segments": [{"rate": "15.25"}]}, keep_rate=True)
+        self.assertEqual(kept["segments"][0]["rate"], "15.25")
 
     def test_short_pages_do_not_truncate_collection(self):
         client = TCP()

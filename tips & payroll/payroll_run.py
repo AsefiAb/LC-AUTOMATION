@@ -60,7 +60,7 @@ def fetch_tcp(dates):
     report = {'generated_at': datetime.now(timezone.utc).isoformat(),
               'period': {'startDate': first, 'stopDate': last}, 'datasets': {}, 'errors': {}}
     for kind, params in queries.items():
-        rows = client.collect(kind, params)
+        rows = client.collect(kind, params, keep_rate=kind == 'hours')
         report['datasets'][kind] = {'complete': True, 'count': len(rows), 'records': rows}
         print(f'TCP {kind}: {len(rows)} records retrieved')
     return report
