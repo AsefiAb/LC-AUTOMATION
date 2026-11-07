@@ -1,1 +1,1 @@
-{"date": "2026-11-06", "status": "sent", "message_sha256": "7448230b26f81482240ae11498d4d62d7ec8940c2468bc4cdcd0815f9c4b2857", "message_id": "<sales-2026-11-06@caazllc.com>", "run_id": "42404412166", "confirmed_at": "2026-11-07T19:06:29.416001+00:00"}
+{"date": "2026-11-06", "status": "sent", "message_sha256": "7448230b26f81482240ae11498d4d62d7ec8940c2468bc4cdcd0815f9c4b2857", "message_id": "<sales-2026-11-06@caazllc.com>", "run_id": "42404412166", "confirmed_at": "2026-11-07T19:06:29.416001+00:00", "catch_up": "complete"}
