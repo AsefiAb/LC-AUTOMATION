@@ -70,6 +70,8 @@ def review_rows(dates, payroll=None, report=None, tips=None, comparison=None, al
         except (ValueError, KeyError, TypeError):
             source = {'employees': []}
         for item in source['employees']:
+            if item['employee_id'] in (payroll or {}).get('excluded', []):
+                continue  # Paid out by the owner; not part of this payroll.
             row = add(item['store'], item['employee_id'])
             if row['regular_hours'] is None:
                 ot = Decimal(str(item['ot1_minutes'])) + Decimal(str(item['ot2_minutes']))

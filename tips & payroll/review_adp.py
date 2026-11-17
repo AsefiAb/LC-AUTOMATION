@@ -10,7 +10,7 @@ import os
 from adp_roster import FILES, fill_region, validate_import
 
 
-def current_template(code, company, period_start=None):
+def current_template(code, company, period_start=None, worked_names=()):
     """The EPI file to fill: built from the live ADP roster, else the last supplied export.
 
     Returns (raw, notes, added, live). live is True when every current ADP employee
@@ -24,7 +24,7 @@ def current_template(code, company, period_start=None):
     workers = None if adp_api.missing_secrets() else adp_api.workers_once()[0]
     if workers:
         try:
-            raw, rows = adp_api.build_epi(company, workers, period_start)
+            raw, rows = adp_api.build_epi(company, workers, period_start, worked_names)
         except Exception:
             rows = []
         if rows:
@@ -36,6 +36,9 @@ def current_template(code, company, period_start=None):
                 added = [r for r in rows if r['file_number'] not in known]
             notes = [f'{code}: CSV built from the live ADP roster ({len(rows)} current employees)'
                      + (f', including {len(added)} not in the last supplied export.' if saved is not None and added else '.')]
+            notes += [f'{code}: {r["name"]} worked this period in TCP but is terminated in ADP; listed under '
+                      f'ADP file {r["file_number"]} so pay is not dropped. Complete the rehire in ADP.'
+                      for r in rows if r.get('rehire_pending')]
             return raw, notes, added, True
     if saved is None:
         return None, [], [], False
@@ -163,7 +166,10 @@ def prepare_candidate(prefix, people, dates, output, rates=None):
         # a different person. Fail this candidate, while delivering the reports.
         return None, {'ready': False, 'issues': [f'{code}: invalid ADP identity settings; CSV could not be created']}
     try:
-        raw, roster_notes, added, live = current_template(code, company, dates['start_date'])
+        import adp_api
+        worked = {adp_api.name_key(f"{p['first_name']} {p['last_name']}") for p in people
+                  if any(p.get(k) not in (None, '', '0.00') for k in ('regular_hours', 'overtime_hours'))}
+        raw, roster_notes, added, live = current_template(code, company, dates['start_date'], worked)
     except (ValueError, TypeError):
         return None, {'ready': False, 'issues': [f'{code}: ADP template/identity validation failed; CSV could not be created']}
     if raw is None:

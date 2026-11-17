@@ -225,7 +225,7 @@ EPI_LAYOUT = {
 }
 
 
-def build_epi(company, workers, period_start=None):
+def build_epi(company, workers, period_start=None, worked_names=()):
     """A complete EPI import file for every current active ADP employee of company.
 
     Built from the live ADP roster each run, so nobody is missing and no saved
@@ -234,6 +234,9 @@ def build_epi(company, workers, period_start=None):
     legal name and ADP hourly rate; amounts are left for the payroll fill.
     Someone terminated on or after period_start is included too, so a person who
     worked part of the period before leaving still receives final hours and tips.
+    A person who worked this period in TCP (worked_names: name_key(first last)) but
+    whose ADP records are all terminated is listed under their latest file number,
+    marked rehire_pending, so their pay is not dropped while ADP catches up.
     Returns (raw, rows).
     """
     import csv
@@ -252,6 +255,22 @@ def build_epi(company, workers, period_start=None):
                 and (w['first_name'] or w['last_name']) and number not in seen):
             seen.add(number)
             people.append(w)
+    pending = set()
+    if worked_names:
+        listed = {name_key(f"{w['first_name']} {w['last_name']}") for w in people}
+        latest = {}
+        for w in workers:
+            name = name_key(f"{w['first_name']} {w['last_name']}")
+            number = w['file_number'].lstrip('0')
+            if (w['company_code'].upper() != company or not number.strip() or name not in worked_names
+                    or name in listed or w.get('associate_oid') in still_active):
+                continue
+            key = (w['hire_date'] or '', number.zfill(20))
+            if name not in latest or key > latest[name][0]:
+                latest[name] = (key, w)
+        for _, w in latest.values():
+            pending.add(w['file_number'].lstrip('0'))
+            people.append(w)
     people.sort(key=lambda w: (sort_key(w['last_name'], w['first_name']), w['file_number']))
     lines = ['!Do not change rows and column headers preceded by "!".  Only employee data can be modified.',
              '!CO CODE,BATCH ID,FILE #,BATCH DESCRIPTION,Name,Rate,Reg Hours,O/T Hours,' + tip,
@@ -267,7 +286,8 @@ def build_epi(company, workers, period_start=None):
         buffer = io.StringIO()
         csv.writer(buffer, lineterminator='').writerow([company, batch, number, '', name, rate, '', '', ''])
         lines.append(buffer.getvalue())
-        rows.append({'file_number': number, 'name': name, 'rate': rate, 'hire_date': worker['hire_date']})
+        rows.append({'file_number': number, 'name': name, 'rate': rate, 'hire_date': worker['hire_date'],
+                     **({'rehire_pending': True} if number in pending else {})})
     lines += ['!', '!Column1,CO CODE,,CO CODE', '!Column2,BATCH ID,,BATCH ID',
               '!Column3,FILE #,,FILE #,,,LOCKED,80', '!Column4,BATCH DESCRIPTION,,BATCH DESCRIPTION',
               '!Column5,Name,,Employee Name,,,,80'] + columns

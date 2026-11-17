@@ -440,11 +440,14 @@ class LiveStatusTests(unittest.TestCase):
                 patch('adp_api.workers_once', return_value=(LIVE, None)):
             name, audit = review_adp.prepare_candidate('3759', people, dates, Path(folder))
         self.assertEqual(name, 'EPIFNC00.CSV')
-        self.assertEqual([a['file_number'] for a in audit['adp_added']], ['98327'])
+        # 99920 is listed as a pending rehire (worked in TCP, terminated in ADP), but the
+        # confirmed match to it stays blocked, so that person is still reported below.
+        self.assertEqual([a['file_number'] for a in audit['adp_added']], ['98327', '99920'])
         row = next(e for e in audit['employees'] if e['geid'] == '1000010')
         self.assertEqual(row['file_number'], '98327')
         self.assertEqual([m['geid'] for m in audit['missing']], ['1000020'])
-        self.assertTrue(any('confirmed ADP file 099920 is not on the ADP roster' in i for i in audit['issues']))
+        self.assertTrue(any('matched ADP file 99920 is terminated or not active in ADP; match not applied' in i
+                            for i in audit['issues']))
         self.assertTrue(any('GEID 1000010: matched ADP file 98397 is an older assignment' in i
                             for i in audit['issues']))
 

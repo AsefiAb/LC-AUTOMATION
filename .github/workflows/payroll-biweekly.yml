@@ -32,6 +32,10 @@ on:
         description: Also send this period's 0-hours email (owner-requested; still at most once per period)
         type: boolean
         default: false
+      exclude_employees:
+        description: TCP employee IDs (comma-separated) the owner already paid out; left out of this run and its tips
+        type: string
+        default: ''
 permissions:
   contents: write
 concurrency:
@@ -73,6 +77,7 @@ jobs:
           MODE: ${{ inputs.mode || (vars.PAYROLL_AUTOMATION_ENABLED == 'true' && 'deliver' || 'preflight') }}
           REVIEW_REVISION: ${{ inputs.review_revision }}
           ZERO_HOURS_MANUAL_SEND: ${{ inputs.send_zero_hours && 'true' || '' }}
+          PAYROLL_EXCLUDE_GEIDS: ${{ inputs.exclude_employees }}
           TCP_CLIENT_ID: ${{ secrets.TCP_CLIENT_ID }}
           TCP_CLIENT_SECRET: ${{ secrets.TCP_CLIENT_SECRET }}
           TCP_API_KEY: ${{ secrets.TCP_API_KEY }}

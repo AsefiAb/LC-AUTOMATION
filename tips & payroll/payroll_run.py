@@ -300,8 +300,16 @@ def normalize(report):
             issues.append(f'GEID {eid}: {exc}')
     if not roster:
         issues.append('No complete roster was returned')
+    # People the owner already paid out for this period: removed before tips are split,
+    # so their store's tip pool goes to the remaining eligible staff.
+    excluded = sorted({g.strip() for g in os.environ.get('PAYROLL_EXCLUDE_GEIDS', '').split(',') if g.strip()})
+    if excluded:
+        roster = [p for p in roster if p['geid'] not in excluded]
+        employees = [e for e in employees if e['employee_id'] not in excluded]
+        warnings.extend(f'GEID {g}: left out of this payroll at the owner\'s request (already paid out); '
+                        'no hours or tips included.' for g in excluded)
     from role_reviews import apply_role_reviews
-    return apply_role_reviews({'period': {'start_date': first, 'end_date': last}, 'verified': not issues, 'issues': issues,
+    return apply_role_reviews({'excluded': excluded, 'period': {'start_date': first, 'end_date': last}, 'verified': not issues, 'issues': issues,
             'checks': checks, 'roster': roster, 'employees': employees, 'warnings': warnings,
             'tcp_titles': tcp_titles, 'tcp_rates': tcp_rates(report),
             'adp_roles': {eid: adp_roles[eid] for eid in adp_used},
@@ -423,7 +431,13 @@ def prepare(gateway_data, payroll, output):
     from review_adp import current_template, identity_overrides
     roster_notes = {}
     for code, company, filename in FILES.values():
-        raw, live_notes, added, live = current_template(code, company, payroll['period']['start_date'])
+        import adp_api
+        prefix = next(p for p, f in FILES.items() if f[1] == company)
+        names = {p['geid']: f"{p['first_name']} {p['last_name']}" for p in payroll['roster']}
+        worked = {adp_api.name_key(names[e['employee_id']]) for e in payroll['employees']
+                  if e['store'].startswith(prefix + '-') and e['employee_id'] in names
+                  and Decimal(str(e['total_hours'])) > 0}
+        raw, live_notes, added, live = current_template(code, company, payroll['period']['start_date'], worked)
         if raw is None:
             raise ValueError('Missing current ADP template for ' + code)
         if not live and settings.get('period') != payroll['period']:

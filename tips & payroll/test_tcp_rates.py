@@ -44,5 +44,18 @@ class LiveEPITests(unittest.TestCase):
                          [('FND', '1'), ('FND', '4'), ('FND', '3')])
         self.assertTrue(raw.endswith(b'!Column9,TIP,,Earnings 3 Code,Earnings 3 Amount,TIP,,80' + bytes([13, 10])))
 
+    def test_worked_in_tcp_but_terminated_in_adp_is_listed_as_pending_rehire(self):
+        import adp_api
+        def w(first, last, number, status, term, hired):
+            return {'associate_oid': 'O' + number, 'first_name': first, 'last_name': last, 'company_code': 'ZKT',
+                    'file_number': number, 'worker_status': status, 'assignment_status': 'T',
+                    'termination_date': term, 'hire_date': hired, 'hourly_rate': '', 'primary': True}
+        workers = [w('Kit', 'Lane', '000054', 'Terminated', '2026-08-15', '2024-11-22'),
+                   w('Kit', 'Lane', '000428', 'Terminated', '2026-08-15', '2024-11-22'),
+                   w('Old', 'Hand', '000077', 'Terminated', '2025-01-01', '2024-01-01')]
+        raw, rows = adp_api.build_epi('ZKT', workers, '2026-11-03', {adp_api.name_key('Kit Lane')})
+        self.assertEqual([(r['file_number'], r.get('rehire_pending')) for r in rows], [('428', True)])
+        self.assertEqual(adp_api.build_epi('ZKT', workers, '2026-11-03')[1], [])
+
 if __name__ == '__main__':
     unittest.main()
